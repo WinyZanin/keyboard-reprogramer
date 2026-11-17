@@ -1,17 +1,27 @@
 # Keyboard Reprogramer
 
-Aplicativo de console para Windows, escrito em Rust, que reprograma uma tecla pouco usada (ex.: **Insert**) para executar uma **ação de controle de mídia**. É útil em teclados sem teclas de mídia.
+<img src="assets/icon.png" width="96" alt="Ícone">
+
+Aplicativo para Windows, escrito em Rust, que reprograma uma tecla pouco usada (ex.: **Insert**) para executar uma **ação de controle de mídia**. É útil em teclados sem teclas de mídia.
 
 Enquanto o app está aberto, a tecla escolhida **não executa mais a função original** e dispara a ação de mídia. Ao fechar o app, a tecla volta ao normal.
 
 ## Uso
 
 1. Execute `keyboard-reprogramer.exe`.
-2. Escolha a tecla: Insert, Scroll Lock, Pause/Break, Print Screen, Home, End, Page Up, Page Down, Delete, Ctrl direito ou Menu.
-3. Escolha a ação: Play/Pause, Próxima faixa, Faixa anterior, Stop, Volume +, Volume - ou Mudo.
-4. Deixe a janela aberta. Para sair, use **Ctrl+C** ou feche a janela.
+2. Escolha a **Tecla** (Insert, Scroll Lock, Pause/Break, Print Screen, Home, End, Page Up, Page Down, Delete, Ctrl direito, Menu) e a **Ação** (Play/Pause, Próxima faixa, Faixa anterior, Stop, Volume +, Volume -, Mudo) e clique em **Adicionar**. Repita para remapear várias teclas ao mesmo tempo.
+   - Se a tecla já estiver na lista, a ação dela é atualizada.
+   - Clicar numa linha carrega a tecla e a ação dela nos seletores.
+3. Com uma linha selecionada:
+   - **Desativar/Ativar** (ou duplo clique ou Espaço) liga e desliga só aquela tecla, que volta à função original enquanto estiver desativada.
+   - **Remover** (ou Delete) tira a tecla da lista.
+4. O histórico mostra cada acionamento. Fechar a janela devolve todas as teclas ao normal.
 
 Volume +/- repete enquanto a tecla está segurada. As outras ações disparam uma vez por pressionamento.
+
+## Interface
+
+Usa a API Win32 pura (`CreateWindowExW` com os controles nativos `COMBOBOX`, `BUTTON`, `STATIC` e `LISTBOX`) através do crate `windows-sys`, sem framework de GUI. Os estilos visuais modernos (Common Controls v6) são ativados em tempo de execução com o manifesto do `shell32.dll`, então não é preciso compilador de recursos. O app usa a fonte do sistema e ajusta a escala ao DPI.
 
 ## Como funciona
 
@@ -30,6 +40,10 @@ cargo build --release
 ```
 
 Saída: `target\release\keyboard-reprogramer.exe`, um executável único e portátil.
+
+## Ícone
+
+`assets/icon.ico` (16 a 256 px) é gerado por `python tools/make_icon.py` (requer Pillow). O `build.rs` monta a seção de recursos (`.rsrc`) com o ícone e as informações de versão do `Cargo.toml` direto em Rust e a entrega ao linker. Não é preciso `windres` nem `rc.exe`.
 
 ## Limitações
 
