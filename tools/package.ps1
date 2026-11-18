@@ -41,6 +41,8 @@ $metadata = cargo metadata --no-deps --format-version 1 | ConvertFrom-Json
 if ($LASTEXITCODE -ne 0) { throw 'cargo metadata failed' }
 $package = $metadata.packages | Where-Object { $_.name -eq 'keyboard-reprogramer' }
 $version = $package.version
+$url = $package.repository
+if (-not $url) { throw 'Cargo.toml has no repository URL' }
 Write-Host "Packaging keyboard-reprogramer $version"
 
 if (-not $SkipBuild) {
@@ -58,7 +60,7 @@ $base = "keyboard-reprogramer-$version-x64"
 $staging = Join-Path $dist 'portable'
 New-Item -ItemType Directory $staging | Out-Null
 Copy-Item $exe, 'README.md', 'README.pt-BR.md', 'CHANGELOG.md' $staging
-if (Test-Path 'LICENSE') { Copy-Item 'LICENSE' $staging }
+Copy-Item 'LICENSE' (Join-Path $staging 'LICENSE.txt')
 Compress-Archive -Path (Join-Path $staging '*') -DestinationPath (Join-Path $dist "$base-portable.zip")
 Remove-Item -Recurse -Force $staging
 
@@ -73,7 +75,7 @@ if (-not $SkipInno) {
         ) | Where-Object { Test-Path $_ } | Select-Object -First 1
     }
     if (-not $iscc) { throw 'Inno Setup 6 not found (winget install JRSoftware.InnoSetup), or use -SkipInno' }
-    Invoke-Native $iscc @('/Q', "/DAppVersion=$version", 'installer\inno\keyboard-reprogramer.iss')
+    Invoke-Native $iscc @('/Q', "/DAppVersion=$version", "/DAppUrl=$url", 'installer\inno\keyboard-reprogramer.iss')
 }
 
 # MSI
@@ -86,6 +88,7 @@ if (-not $SkipMsi) {
         '-arch', 'x64',
         '-ext', 'WixToolset.UI.wixext',
         '-d', "Version=$version",
+        '-d', "Url=$url",
         '-o', (Join-Path $dist "$base.msi")
     )
     # wix also writes a .wixpdb debug file next to the msi; it isn't a release artifact.

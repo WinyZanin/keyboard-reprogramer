@@ -1,13 +1,16 @@
 ; Inno Setup 6 script for Keyboard Reprogramer.
 ;
-; Built by tools/package.ps1, which passes the version from Cargo.toml:
-;   ISCC.exe /DAppVersion=X.Y.Z installer\inno\keyboard-reprogramer.iss
+; Built by tools/package.ps1, which passes the version and repository URL from Cargo.toml:
+;   ISCC.exe /DAppVersion=X.Y.Z /DAppUrl=https://... installer\inno\keyboard-reprogramer.iss
 ;
 ; Installs per user by default (no admin, %LOCALAPPDATA%\Programs); the user can choose
 ; "install for all users" in the first dialog, or pass /ALLUSERS on the command line.
 
 #ifndef AppVersion
   #error AppVersion is not defined. Run tools/package.ps1 or pass /DAppVersion=X.Y.Z
+#endif
+#ifndef AppUrl
+  #error AppUrl is not defined. Run tools/package.ps1 or pass /DAppUrl=https://...
 #endif
 
 #define AppName "Keyboard Reprogramer"
@@ -21,6 +24,10 @@ AppName={#AppName}
 AppVersion={#AppVersion}
 AppVerName={#AppName} {#AppVersion}
 AppPublisher=WinyZanin
+; Shown as links in Settings > Apps (support, about and updates).
+AppPublisherURL={#AppUrl}
+AppSupportURL={#AppUrl}/issues
+AppUpdatesURL={#AppUrl}/releases
 VersionInfoVersion={#AppVersion}
 VersionInfoProductVersion={#AppVersion}
 DefaultDirName={autopf}\{#AppName}
@@ -52,6 +59,7 @@ Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{
 
 [Files]
 Source: "{#Root}\target\release\{#AppExe}"; DestDir: "{app}"; Flags: ignoreversion
+Source: "{#Root}\LICENSE"; DestDir: "{app}"; DestName: "LICENSE.txt"; Flags: ignoreversion
 
 [Icons]
 Name: "{autoprograms}\{#AppName}"; Filename: "{app}\{#AppExe}"

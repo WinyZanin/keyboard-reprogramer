@@ -27,13 +27,45 @@ jobs:
         run: cargo clippy --release --locked -- -D warnings
 
   # PRs are squash-merged, so the PR title becomes the commit on main that release-please reads:
-  # it must follow Conventional Commits (feat: ..., fix: ..., feat!: ...).
+  # it must follow Conventional Commits (feat: ..., fix(scope): ..., feat!: ...).
+  # If it doesn't, but the branch is named <type>/<description> (e.g. feat/save-config), the
+  # title is rewritten from the branch name ("feat: save config"). Validation happens in this
+  # same job because edits made with GITHUB_TOKEN don't trigger a new workflow run.
   pr-title:
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     permissions:
-      pull-requests: read
+      pull-requests: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      # Passed through env (not interpolated into the script) so a title can't inject shell code.
+      PR_NUMBER: ${{ github.event.pull_request.number }}
+      PR_TITLE: ${{ github.event.pull_request.title }}
+      BRANCH: ${{ github.head_ref }}
     steps:
-      - uses: amannn/action-semantic-pull-request@v5
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Check PR title (or derive it from the branch name)
+        shell: bash
+        run: |
+          types='feat|fix|docs|chore|refactor|perf|test|ci|build|style|revert'
+          title_re="^($types)(\([a-z0-9._-]+\))?!?: [^ ].*"
+          branch_re="^($types)(!?)/(.+)$"
+
+          if [[ "$PR_TITLE" =~ $title_re ]]; then
+            echo "PR title OK: $PR_TITLE"
+            exit 0
+          fi
+
+          if [[ "$BRANCH" =~ $branch_re ]]; then
+            type="${BASH_REMATCH[1]}"
+            bang="${BASH_REMATCH[2]}"
+            description=$(echo "${BASH_REMATCH[3]}" | tr '/_-' '   ' | tr -s ' ')
+            new_title="$type$bang: $description"
+            gh pr edit "$PR_NUMBER" --title "$new_title"
+            echo "::notice::PR title set from the branch name: \"$new_title\" (edit it if you want a better description)"
+            exit 0
+          fi
+
+          echo "::error::PR title \"$PR_TITLE\" isn't a Conventional Commit and the branch \"$BRANCH\" isn't named <type>/<description>."
+          echo "::error::Rename the PR to e.g. \"feat: add X\" or \"fix: correct Y\" (types: ${types//|/, })."
+          exit 1

@@ -74,7 +74,9 @@ pub struct Strings {
 
     // About dialog
     pub about_title: &'static str,
-    pub about_text: fn(version: &str) -> String,
+    /// Body of the About dialog (the app name is the heading). `<a href="...">` tags become
+    /// clickable links.
+    pub about_text: fn(version: &str, url: &str) -> String,
 
     // Main window
     pub master_disable: &'static str,
@@ -137,11 +139,14 @@ static EN: Strings = Strings {
     menu_about: "&About...",
 
     about_title: "About Keyboard Reprogramer",
-    about_text: |version| {
-        format!("Keyboard Reprogramer
-Version {version}
-
-Remaps rarely used keys to media control actions.")
+    about_text: |version, url| {
+        format!(
+            "Version {version}\n\n\
+             Remaps rarely used keys to media control actions.\n\n\
+             Copyright © 2026 WinyZanin\n\
+             Released under the MIT License.\n\n\
+             <a href=\"{url}\">{url}</a>"
+        )
     },
 
     master_disable: "Disable all",
@@ -200,11 +205,14 @@ static PT_BR: Strings = Strings {
     menu_about: "&Sobre...",
 
     about_title: "Sobre o Keyboard Reprogramer",
-    about_text: |version| {
-        format!("Keyboard Reprogramer
-Versão {version}
-
-Reprograma teclas pouco usadas para ações de controle de mídia.")
+    about_text: |version, url| {
+        format!(
+            "Versão {version}\n\n\
+             Reprograma teclas pouco usadas para ações de controle de mídia.\n\n\
+             Copyright © 2026 WinyZanin\n\
+             Distribuído sob a licença MIT.\n\n\
+             <a href=\"{url}\">{url}</a>"
+        )
     },
 
     master_disable: "Desativar tudo",
