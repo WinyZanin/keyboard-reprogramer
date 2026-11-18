@@ -58,7 +58,7 @@ $base = "keyboard-reprogramer-$version-x64"
 $staging = Join-Path $dist 'portable'
 New-Item -ItemType Directory $staging | Out-Null
 Copy-Item $exe, 'README.md', 'README.pt-BR.md', 'CHANGELOG.md' $staging
-if (Test-Path 'LICENSE') { Copy-Item 'LICENSE' $staging }
+Copy-Item 'LICENSE' (Join-Path $staging 'LICENSE.txt')
 Compress-Archive -Path (Join-Path $staging '*') -DestinationPath (Join-Path $dist "$base-portable.zip")
 Remove-Item -Recurse -Force $staging
 

@@ -106,6 +106,10 @@ Para empacotar localmente, rode `tools/package.ps1` (saída em `dist\`). Ele pre
 
 `assets/icon.ico` (16 a 256 px) é gerado por `python tools/make_icon.py` (requer Pillow). O `build.rs` monta a seção de recursos (`.rsrc`) com o ícone e as informações de versão do `Cargo.toml` direto em Rust e a entrega ao linker. Não é preciso `windres` nem `rc.exe`.
 
+## Licença
+
+[MIT](LICENSE) © 2026 WinyZanin. Os instaladores e o zip portátil incluem uma cópia como `LICENSE.txt`.
+
 ## Limitações
 
 - Só funciona com o app aberto, e a configuração (teclas e idioma) ainda não é salva ao fechar.
