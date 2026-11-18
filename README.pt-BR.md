@@ -8,6 +8,29 @@ Aplicativo para Windows, escrito em Rust, que reprograma teclas pouco usadas (ex
 
 Enquanto o app está aberto, a tecla escolhida **não executa mais a função original** e dispara a ação de mídia. Ao fechar o app, a tecla volta ao normal.
 
+## Instalação
+
+Baixe a versão mais recente (que não seja pre-release) na página **Releases** do projeto no GitHub (cada arquivo está listado em `SHA256SUMS.txt`):
+
+| Arquivo | Uso |
+| --- | --- |
+| `keyboard-reprogramer-X.Y.Z-x64-setup.exe` | Instalador recomendado (assistente em inglês/português). |
+| `keyboard-reprogramer-X.Y.Z-x64.msi` | MSI para implantação gerenciada ou silenciosa (interface em inglês). |
+| `keyboard-reprogramer-X.Y.Z-x64-portable.zip` | Exe portátil, sem instalação. |
+
+Os dois instaladores instalam **por usuário por padrão** (sem direitos de administrador, em `%LOCALAPPDATA%\Programs\Keyboard Reprogramer`), criam um atalho no Menu Iniciar e um atalho opcional na área de trabalho, e aparecem em *Configurações → Aplicativos* para desinstalar. Instalar uma versão mais nova atualiza a existente no lugar. Se o app estiver aberto, o instalador pede para fechá-lo antes.
+
+Instalação silenciosa:
+
+```sh
+keyboard-reprogramer-X.Y.Z-x64-setup.exe /VERYSILENT /CURRENTUSER [/TASKS=desktopicon]
+msiexec /i keyboard-reprogramer-X.Y.Z-x64.msi /qn [DESKTOPSHORTCUT=1] [ALLUSERS=1]
+```
+
+`/ALLUSERS` (setup.exe) ou `ALLUSERS=1` (MSI) instala para todos os usuários em Arquivos de Programas, o que exige direitos de administrador.
+
+Os instaladores ainda não têm assinatura de código, então o SmartScreen do Windows pode avisar na primeira execução (*Mais informações → Executar assim mesmo*).
+
 ## Uso
 
 1. Execute `keyboard-reprogramer.exe`.
@@ -23,6 +46,8 @@ Enquanto o app está aberto, a tecla escolhida **não executa mais a função or
 Uma mesma tecla não pode estar em duas linhas. As teclas são identificadas pela posição física (scan code), então o Insert e o Num 0 são teclas diferentes, com o NumLock ligado ou não.
 
 Volume +/- repete enquanto a tecla está segurada. As outras ações disparam uma vez por pressionamento.
+
+Só uma instância roda por vez: abrir o app de novo traz a janela existente para a frente. **Ajuda → Sobre** mostra a versão instalada.
 
 ## Idioma
 
@@ -60,6 +85,22 @@ cargo build --release
 ```
 
 Saída: `target\release\keyboard-reprogramer.exe`, um executável único e portátil.
+
+## Versionamento e releases
+
+O projeto segue o [Versionamento Semântico](https://semver.org/lang/pt-BR/) e os [Conventional Commits](https://www.conventionalcommits.org/pt-br/). A `version` do `Cargo.toml` é a única fonte da verdade: o `build.rs` grava ela nas propriedades do exe, **Ajuda → Sobre** mostra, e o script de empacotamento repassa aos dois instaladores. As releases são automatizadas pelo [release-please](https://github.com/googleapis/release-please):
+
+1. **Toda mudança passa por uma branch e um pull request** para a `main`. Os PRs são mesclados com squash, e o **título do PR** precisa ser um Conventional Commit (verificado pelo CI), porque vira a mensagem de commit que decide a próxima versão:
+   - `fix: ...` → patch (0.1.0 → 0.1.1)
+   - `feat: ...` → minor (0.1.0 → 0.2.0)
+   - `feat!: ...` ou um rodapé `BREAKING CHANGE:` → major (enquanto abaixo de 1.0, sobe o minor)
+   - `docs:`, `chore:`, `ci:`, `refactor:`, `test:` → sozinhos não geram release
+2. **A cada merge na `main`**, o release-please abre ou atualiza um **PR de versão** (`chore(main): release X.Y.Z`) que sobe a versão no `Cargo.toml`/`Cargo.lock` e escreve a entrada do `CHANGELOG.md`. Ao mesmo tempo é publicado um **beta** como *pre-release* do GitHub `vX.Y.Z-beta.N` (N = commits desde a última release), só com o exe portátil.
+3. **Mesclar o PR de versão** cria a tag `vX.Y.Z` e publica a release final no GitHub com o setup.exe, o MSI, o zip portátil e o `SHA256SUMS.txt`. Em seguida os betas dessa versão (e os mais antigos) são apagados automaticamente, junto com as tags.
+
+Workflows: `.github/workflows/ci.yml` (build, clippy, título do PR), `release-please.yml` (PR de versão, betas, release final) e `package.yml` (gera e anexa os artefatos finais; também roda quando uma tag final `vX.Y.Z` é enviada à mão). Configuração: `release-please-config.json` e `.release-please-manifest.json` (última versão lançada; o release-please atualiza).
+
+Para empacotar localmente, rode `tools/package.ps1` (saída em `dist\`). Ele precisa do [Inno Setup 6](https://jrsoftware.org/isinfo.php) (`winget install JRSoftware.InnoSetup`) e do [WiX 5](https://wixtoolset.org) (`dotnet tool install --global wix --version 5.0.2`, depois `wix extension add --global WixToolset.UI.wixext/5.0.2`); `-SkipInno` / `-SkipMsi` pulam um deles. Os fontes dos instaladores ficam em `installer/inno` e `installer/wix`; nunca altere os GUIDs `AppId` / `UpgradeCode`, que ligam as versões entre si para as atualizações.
 
 ## Ícone
 

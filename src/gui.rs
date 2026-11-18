@@ -2,7 +2,7 @@
 //! no frameworks.
 //!
 //! Layout:
-//! - Menu bar: Language.
+//! - Menu bar: Language, Help (About).
 //! - Top: master button (disables/re-enables everything) and status.
 //! - Scrollable panel with one row per key: [key] [action ▾] [Disable] [Delete],
 //!   followed by the "+ Add" button, which creates a new row and starts capturing its key.
@@ -38,12 +38,17 @@ use crate::hook::{self, Key, Rule, WM_APP_TRIGGERED};
 use crate::i18n::{self, t, Lang};
 use crate::keys;
 
+/// Main window class; also used by `main` to find the running instance.
+pub const MAIN_CLASS: &str = "KeyboardReprogramerWindow";
+
 const ID_MASTER: i32 = 10;
 const ID_STATUS: i32 = 11;
 const ID_PANEL: i32 = 12;
 const ID_LOG: i32 = 13;
 const ID_HISTORY_LABEL: i32 = 14;
 const ID_ADD: i32 = 20;
+/// Help > About menu item.
+const ID_ABOUT: i32 = 90;
 /// Language menu items: ID = ID_LANG_BASE + index in `Lang::ALL`.
 const ID_LANG_BASE: i32 = 100;
 /// Row controls: ID = ROW_ID_BASE + uid * 4 + part.
@@ -508,6 +513,9 @@ unsafe fn build_menu() -> HMENU {
     let last = first + Lang::ALL.len() as u32 - 1;
     CheckMenuRadioItem(langs, first, last, first + current, MF_BYCOMMAND);
     AppendMenuW(bar, MF_POPUP, langs as usize, w(t().menu_language).as_ptr());
+    let help = CreatePopupMenu();
+    AppendMenuW(help, MF_STRING, ID_ABOUT as usize, w(t().menu_about).as_ptr());
+    AppendMenuW(bar, MF_POPUP, help as usize, w(t().menu_help).as_ptr());
     bar
 }
 
@@ -532,6 +540,12 @@ unsafe fn retranslate() {
         update_row(uid); // also restores the combo selection
     }
     sync();
+}
+
+/// Shows the app name and version (taken from Cargo.toml at build time).
+unsafe fn show_about(owner: HWND) {
+    let text = (t().about_text)(env!("CARGO_PKG_VERSION"));
+    MessageBoxW(owner, w(&text).as_ptr(), w(t().about_title).as_ptr(), MB_OK | MB_ICONINFORMATION);
 }
 
 unsafe fn set_language(lang: Lang) {
@@ -592,6 +606,8 @@ unsafe extern "system" fn wnd_proc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam:
             let notify = ((wparam >> 16) & 0xffff) as u32;
             if id == ID_MASTER && notify == BN_CLICKED {
                 toggle_master();
+            } else if lparam == 0 && id == ID_ABOUT {
+                show_about(hwnd);
             } else if lparam == 0 && id >= ID_LANG_BASE {
                 // Menu item (lParam is 0 for menu commands).
                 if let Some(&lang) = Lang::ALL.get((id - ID_LANG_BASE) as usize) {
@@ -694,7 +710,7 @@ pub fn run() -> Result<(), String> {
         SystemParametersInfoW(SPI_GETNONCLIENTMETRICS, ncm.cbSize, &mut ncm as *mut _ as *mut c_void, 0);
         FONT.store(CreateFontIndirectW(&ncm.lfMessageFont), Ordering::Relaxed);
 
-        let main_class = w("KeyboardReprogramerWindow");
+        let main_class = w(MAIN_CLASS);
         let panel_class = w("KeyboardReprogramerRows");
         register_class(&main_class, Some(wnd_proc), COLOR_BTNFACE, true)?;
         register_class(&panel_class, Some(panel_proc), COLOR_WINDOW, false)?;
