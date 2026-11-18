@@ -1,8 +1,8 @@
 ﻿<!--
   WiX Toolset v5 package for Keyboard Reprogramer.
 
-  Built by tools/package.ps1, which passes the version from Cargo.toml:
-    wix build installer\wix\Package.wxs -arch x64 -ext WixToolset.UI.wixext -d Version=X.Y.Z -o dist\...msi
+  Built by tools/package.ps1, which passes the version and repository URL from Cargo.toml:
+    wix build installer\wix\Package.wxs -arch x64 -ext WixToolset.UI.wixext -d Version=X.Y.Z -d Url=https://... -o dist\...msi
 
   Dual-purpose package: per user by default (no admin, %LOCALAPPDATA%\Programs);
   `msiexec /i <msi> ALLUSERS=1` installs for all users under Program Files.
@@ -31,6 +31,10 @@
 
     <Icon Id="AppIcon" SourceFile="$(Root)\assets\icon.ico" />
     <Property Id="ARPPRODUCTICON" Value="AppIcon" />
+    <!-- Shown as links in Settings > Apps (about, support and updates). -->
+    <Property Id="ARPURLINFOABOUT" Value="$(Url)" />
+    <Property Id="ARPHELPLINK" Value="$(Url)/issues" />
+    <Property Id="ARPURLUPDATEINFO" Value="$(Url)/releases" />
 
     <!-- ProgramFiles6432Folder resolves to %LOCALAPPDATA%\Programs on per-user installs. -->
     <StandardDirectory Id="ProgramFiles6432Folder">
