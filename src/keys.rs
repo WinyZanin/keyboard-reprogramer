@@ -1,36 +1,39 @@
-//! Nome legível de uma tecla física.
+//! Human-readable name of a physical key.
 
 use windows_sys::Win32::UI::Input::KeyboardAndMouse::*;
 
 use crate::hook::Key;
+use crate::i18n::t;
 
-/// Nome da tecla no idioma do layout de teclado do Windows (ex.: "INSERT", "NUM 0").
+/// Key name. Most names come from `GetKeyNameTextW`, in the language of the Windows
+/// keyboard layout (e.g. "INSERT", "NUM 0"); the rest come from the UI translation.
 pub fn name(key: &Key) -> String {
-    // Teclas que o GetKeyNameText nomeia errado ou não nomeia.
+    let s = t();
+    // Keys that GetKeyNameText names wrong or doesn't name at all.
     let fixed = match key.vk {
         VK_PAUSE => Some("Pause/Break"),
         VK_CANCEL => Some("Break"),
         VK_SNAPSHOT => Some("Print Screen"),
         VK_NUMLOCK => Some("Num Lock"),
-        VK_LWIN => Some("Windows (esq.)"),
-        VK_RWIN => Some("Windows (dir.)"),
-        VK_APPS => Some("Menu"),
-        VK_MEDIA_PLAY_PAUSE => Some("Mídia: Play/Pause"),
-        VK_MEDIA_NEXT_TRACK => Some("Mídia: Próxima"),
-        VK_MEDIA_PREV_TRACK => Some("Mídia: Anterior"),
-        VK_MEDIA_STOP => Some("Mídia: Stop"),
-        VK_VOLUME_UP => Some("Volume +"),
-        VK_VOLUME_DOWN => Some("Volume -"),
-        VK_VOLUME_MUTE => Some("Mudo"),
-        VK_BROWSER_HOME => Some("Navegador: Início"),
-        VK_BROWSER_BACK => Some("Navegador: Voltar"),
-        VK_BROWSER_FORWARD => Some("Navegador: Avançar"),
-        VK_BROWSER_SEARCH => Some("Navegador: Pesquisar"),
-        VK_BROWSER_FAVORITES => Some("Navegador: Favoritos"),
-        VK_BROWSER_REFRESH => Some("Navegador: Atualizar"),
-        VK_LAUNCH_MAIL => Some("E-mail"),
-        VK_LAUNCH_APP1 => Some("App 1"),
-        VK_LAUNCH_APP2 => Some("Calculadora"),
+        VK_LWIN => Some(s.key_win_left),
+        VK_RWIN => Some(s.key_win_right),
+        VK_APPS => Some(s.key_menu),
+        VK_MEDIA_PLAY_PAUSE => Some(s.key_media_play_pause),
+        VK_MEDIA_NEXT_TRACK => Some(s.key_media_next),
+        VK_MEDIA_PREV_TRACK => Some(s.key_media_prev),
+        VK_MEDIA_STOP => Some(s.key_media_stop),
+        VK_VOLUME_UP => Some(s.key_volume_up),
+        VK_VOLUME_DOWN => Some(s.key_volume_down),
+        VK_VOLUME_MUTE => Some(s.key_volume_mute),
+        VK_BROWSER_HOME => Some(s.key_browser_home),
+        VK_BROWSER_BACK => Some(s.key_browser_back),
+        VK_BROWSER_FORWARD => Some(s.key_browser_forward),
+        VK_BROWSER_SEARCH => Some(s.key_browser_search),
+        VK_BROWSER_FAVORITES => Some(s.key_browser_favorites),
+        VK_BROWSER_REFRESH => Some(s.key_browser_refresh),
+        VK_LAUNCH_MAIL => Some(s.key_mail),
+        VK_LAUNCH_APP1 => Some(s.key_app1),
+        VK_LAUNCH_APP2 => Some(s.key_calculator),
         _ => None,
     };
     if let Some(name) = fixed {
@@ -40,13 +43,13 @@ pub fn name(key: &Key) -> String {
         return format!("F{}", key.vk - VK_F1 + 1);
     }
 
-    // GetKeyNameText: bits 16-23 = scan code, bit 24 = tecla estendida.
+    // GetKeyNameText: bits 16-23 = scan code, bit 24 = extended key.
     let lparam = (((key.scan & 0xFF) << 16) | ((key.extended as u32) << 24)) as i32;
     let mut buf = [0u16; 64];
     let len = unsafe { GetKeyNameTextW(lparam, buf.as_mut_ptr(), buf.len() as i32) };
     if len > 0 {
         let name = String::from_utf16_lossy(&buf[..len as usize]);
-        // Deixa "INSERT" como "Insert", mas preserva nomes curtos como "F5" ou "Ç".
+        // Turns "INSERT" into "Insert", but keeps short names such as "F5" or "Ç".
         let mut chars = name.chars();
         match chars.next() {
             Some(first) if name.chars().count() > 3 => {
@@ -55,6 +58,6 @@ pub fn name(key: &Key) -> String {
             _ => name,
         }
     } else {
-        format!("Tecla 0x{:02X}", key.vk)
+        (s.key_unknown)(key.vk)
     }
 }

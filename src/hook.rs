@@ -1,16 +1,17 @@
-//! Hook global de teclado de baixo nível (WH_KEYBOARD_LL).
+//! Global low-level keyboard hook (WH_KEYBOARD_LL).
 //!
-//! Para cada evento de teclado do sistema, o Windows chama `low_level_keyboard_proc`
-//! antes de entregá-lo ao aplicativo em foco. Ele faz duas coisas:
+//! For every keyboard event in the system, Windows calls `low_level_keyboard_proc`
+//! before delivering it to the focused application. It does two things:
 //!
-//! - **Remapeamento**: se o evento é de uma tecla com regra ativa, retorna 1 (o evento
-//!   é descartado e a função original não acontece) e dispara a ação de mídia via SendInput.
-//! - **Pausa**: enquanto a GUI captura uma tecla (pelas mensagens normais da janela),
-//!   o hook repassa tudo, para que mesmo uma tecla já remapeada chegue à janela.
+//! - **Remapping**: if the event belongs to a key with an active rule, it returns 1 (the
+//!   event is dropped and the original function doesn't happen) and fires the media action
+//!   via SendInput.
+//! - **Pause**: while the GUI captures a key (through regular window messages), the hook
+//!   passes everything through, so even an already remapped key reaches the window.
 //!
-//! As teclas são identificadas pelo scan code + flag "extended" (a posição física da tecla),
-//! o que distingue, por exemplo, o Insert do Num 0 independentemente do NumLock.
-//! O hook fica instalado enquanto o app roda; sem regras, ele só repassa os eventos.
+//! Keys are identified by scan code + "extended" flag (the physical key position), which
+//! tells, for example, Insert apart from Num 0 regardless of NumLock.
+//! The hook stays installed while the app runs; with no rules it just passes events on.
 
 use std::ffi::c_void;
 use std::ptr::null_mut;
@@ -27,10 +28,10 @@ use windows_sys::Win32::UI::WindowsAndMessaging::{
 
 use crate::actions::{self, ACTIONS};
 
-/// Uma regra disparou. `wparam` = `Rule::uid`.
+/// A rule fired. `wparam` = `Rule::uid`.
 pub const WM_APP_TRIGGERED: u32 = WM_APP + 1;
 
-/// Tecla física.
+/// Physical key.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub struct Key {
     pub vk: u16,
@@ -46,10 +47,9 @@ impl Key {
             self.vk == other.vk
         }
     }
-
 }
 
-/// Regra de remapeamento ativa.
+/// Active remapping rule.
 #[derive(Clone, Copy)]
 pub struct Rule {
     pub uid: u32,
@@ -59,18 +59,18 @@ pub struct Rule {
 
 struct RuleState {
     rule: Rule,
-    /// A tecla está pressionada (evita repetir ações que não devem repetir).
+    /// The key is held down (avoids repeating actions that must not repeat).
     pressed: bool,
 }
 
 static HOOK: AtomicPtr<c_void> = AtomicPtr::new(null_mut());
 static NOTIFY_HWND: AtomicPtr<c_void> = AtomicPtr::new(null_mut());
 static RULES: Mutex<Vec<RuleState>> = Mutex::new(Vec::new());
-/// Pausado: repassa todas as teclas (usado durante a captura).
+/// Paused: passes every key through (used during capture).
 static PAUSED: AtomicBool = AtomicBool::new(false);
 
-/// Instala o hook na thread atual (que precisa rodar um loop de mensagens).
-/// `notify` recebe `WM_APP_TRIGGERED`.
+/// Installs the hook on the current thread (which must run a message loop).
+/// `notify` receives `WM_APP_TRIGGERED`.
 pub fn install(notify: HWND) -> Result<(), String> {
     NOTIFY_HWND.store(notify, Ordering::Relaxed);
     if !HOOK.load(Ordering::Relaxed).is_null() {
@@ -80,13 +80,13 @@ pub fn install(notify: HWND) -> Result<(), String> {
         SetWindowsHookExW(WH_KEYBOARD_LL, Some(low_level_keyboard_proc), GetModuleHandleW(std::ptr::null()), 0)
     };
     if hook.is_null() {
-        return Err(format!("SetWindowsHookExW falhou: {}", std::io::Error::last_os_error()));
+        return Err(format!("SetWindowsHookExW failed: {}", std::io::Error::last_os_error()));
     }
     HOOK.store(hook, Ordering::Relaxed);
     Ok(())
 }
 
-/// Remove o hook; todas as teclas voltam à função original.
+/// Removes the hook; every key gets its original function back.
 pub fn uninstall() {
     let hook = HOOK.swap(null_mut(), Ordering::Relaxed);
     if !hook.is_null() {
@@ -96,7 +96,7 @@ pub fn uninstall() {
     }
 }
 
-/// Substitui as regras ativas (lista vazia = nada é remapeado).
+/// Replaces the active rules (empty list = nothing is remapped).
 pub fn set_rules(rules: &[Rule]) {
     let mut state = RULES.lock().unwrap_or_else(|e| e.into_inner());
     *state = rules
@@ -106,7 +106,7 @@ pub fn set_rules(rules: &[Rule]) {
         .collect();
 }
 
-/// Pausa/retoma o remapeamento (sem alterar as regras).
+/// Pauses/resumes remapping (without changing the rules).
 pub fn set_paused(on: bool) {
     PAUSED.store(on, Ordering::Relaxed);
 }
@@ -114,7 +114,7 @@ pub fn set_paused(on: bool) {
 unsafe extern "system" fn low_level_keyboard_proc(code: i32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
     if code == HC_ACTION as i32 {
         let kb = &*(lparam as *const KBDLLHOOKSTRUCT);
-        // Ignora só o que o próprio app injetou (evita recursão com as teclas de mídia).
+        // Ignores only what the app itself injected (avoids recursion with the media keys).
         let own = kb.flags & LLKHF_INJECTED != 0 && kb.dwExtraInfo == actions::SELF_INJECTED_TAG;
         if !own {
             if let Some(result) = handle(kb, wparam as u32) {
@@ -125,7 +125,7 @@ unsafe extern "system" fn low_level_keyboard_proc(code: i32, wparam: WPARAM, lpa
     CallNextHookEx(null_mut(), code, wparam, lparam)
 }
 
-/// Retorna `Some(1)` para descartar o evento, `None` para repassá-lo.
+/// Returns `Some(1)` to drop the event, `None` to pass it on.
 unsafe fn handle(kb: &KBDLLHOOKSTRUCT, msg: u32) -> Option<LRESULT> {
     let key = Key { vk: kb.vkCode as u16, scan: kb.scanCode, extended: kb.flags & LLKHF_EXTENDED != 0 };
     let down = matches!(msg, WM_KEYDOWN | WM_SYSKEYDOWN);
@@ -135,8 +135,8 @@ unsafe fn handle(kb: &KBDLLHOOKSTRUCT, msg: u32) -> Option<LRESULT> {
         return None;
     }
 
-    // try_lock: o callback nunca pode ficar esperando. Se a GUI estiver trocando as
-    // regras neste instante, o evento passa adiante sem alteração.
+    // try_lock: the callback must never wait. If the GUI is swapping the rules right
+    // now, the event goes through unchanged.
     let mut rules = RULES.try_lock().ok()?;
     let state = rules.iter_mut().find(|s| s.rule.key.same_physical(&key))?;
     let action = &ACTIONS[state.rule.action];
@@ -146,12 +146,12 @@ unsafe fn handle(kb: &KBDLLHOOKSTRUCT, msg: u32) -> Option<LRESULT> {
             actions::send(action.vk);
         }
         if !was_pressed {
-            // PostMessage não bloqueia: o callback precisa retornar rápido.
+            // PostMessage doesn't block: the callback must return quickly.
             PostMessageW(notify, WM_APP_TRIGGERED, state.rule.uid as WPARAM, 0);
         }
     } else if up {
         state.pressed = false;
     }
-    // Descarta o evento original: a tecla não executa sua função normal.
+    // Drops the original event: the key doesn't perform its normal function.
     Some(1)
 }

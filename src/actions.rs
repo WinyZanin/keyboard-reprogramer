@@ -6,26 +6,28 @@ use windows_sys::Win32::UI::Input::KeyboardAndMouse::{
     VK_VOLUME_MUTE, VK_VOLUME_UP,
 };
 
-/// Ação de mídia que substitui a função original da tecla.
+/// Media action that replaces the key's original function.
+/// Display names live in `i18n::Strings::action_names`, in the same order.
 pub struct MediaAction {
-    pub name: &'static str,
     pub vk: u16,
-    /// Repete enquanto a tecla é segurada (útil para volume).
+    /// Repeats while the key is held down (useful for volume).
     pub repeat: bool,
 }
 
-pub const ACTIONS: &[MediaAction] = &[
-    MediaAction { name: "Play/Pause", vk: VK_MEDIA_PLAY_PAUSE, repeat: false },
-    MediaAction { name: "Próxima faixa", vk: VK_MEDIA_NEXT_TRACK, repeat: false },
-    MediaAction { name: "Faixa anterior", vk: VK_MEDIA_PREV_TRACK, repeat: false },
-    MediaAction { name: "Stop", vk: VK_MEDIA_STOP, repeat: false },
-    MediaAction { name: "Volume +", vk: VK_VOLUME_UP, repeat: true },
-    MediaAction { name: "Volume -", vk: VK_VOLUME_DOWN, repeat: true },
-    MediaAction { name: "Mudo", vk: VK_VOLUME_MUTE, repeat: false },
+pub const ACTION_COUNT: usize = 7;
+
+pub const ACTIONS: [MediaAction; ACTION_COUNT] = [
+    MediaAction { vk: VK_MEDIA_PLAY_PAUSE, repeat: false },
+    MediaAction { vk: VK_MEDIA_NEXT_TRACK, repeat: false },
+    MediaAction { vk: VK_MEDIA_PREV_TRACK, repeat: false },
+    MediaAction { vk: VK_MEDIA_STOP, repeat: false },
+    MediaAction { vk: VK_VOLUME_UP, repeat: true },
+    MediaAction { vk: VK_VOLUME_DOWN, repeat: true },
+    MediaAction { vk: VK_VOLUME_MUTE, repeat: false },
 ];
 
-/// Marca os eventos enviados pelo próprio app (dwExtraInfo), para o hook ignorá-los
-/// sem ignorar outras entradas injetadas (teclado virtual, automação etc.).
+/// Tags events sent by the app itself (dwExtraInfo) so the hook ignores them
+/// without ignoring other injected input (on-screen keyboard, automation, etc.).
 pub const SELF_INJECTED_TAG: usize = 0x4B52_4D50; // "KRMP"
 
 fn key_input(vk: u16, up: bool) -> INPUT {
@@ -41,7 +43,7 @@ fn key_input(vk: u16, up: bool) -> INPUT {
     }
 }
 
-/// Envia ao sistema um pressionamento completo (down + up) da tecla virtual de mídia.
+/// Sends a full press (down + up) of the media virtual key to the system.
 pub fn send(vk: u16) {
     let inputs = [key_input(vk, false), key_input(vk, true)];
     unsafe {

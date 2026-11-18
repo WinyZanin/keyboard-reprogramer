@@ -2,11 +2,12 @@
 name = "keyboard-reprogramer"
 version = "0.1.0"
 edition = "2021"
-description = "Remapeia uma tecla pouco usada para uma ação de controle de mídia no Windows"
+description = "Remaps rarely used keys to media control actions on Windows"
 
 [dependencies]
 windows-sys = { version = "0.59", features = [
     "Win32_Foundation",
+    "Win32_Globalization",
     "Win32_UI_WindowsAndMessaging",
     "Win32_UI_Input_KeyboardAndMouse",
     "Win32_Graphics_Gdi",

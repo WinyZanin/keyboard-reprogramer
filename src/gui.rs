@@ -1,11 +1,15 @@
-//! Janela principal em Win32 puro (controles nativos BUTTON, COMBOBOX, STATIC e LISTBOX),
-//! sem frameworks.
+//! Main window in pure Win32 (native BUTTON, COMBOBOX, STATIC and LISTBOX controls),
+//! no frameworks.
 //!
 //! Layout:
-//! - Topo: botão geral (desativa/reativa tudo) e status.
-//! - Painel rolável com uma linha por tecla: [tecla] [ação ▾] [Desativar] [Excluir],
-//!   seguido do botão "+ Adicionar", que cria uma nova linha e já captura a tecla.
-//! - Histórico de acionamentos.
+//! - Menu bar: Language.
+//! - Top: master button (disables/re-enables everything) and status.
+//! - Scrollable panel with one row per key: [key] [action ▾] [Disable] [Delete],
+//!   followed by the "+ Add" button, which creates a new row and starts capturing its key.
+//! - Trigger history.
+//!
+//! All user-visible text comes from `i18n::t()`; `retranslate` re-applies it when the
+//! language changes.
 
 use std::cell::{Cell, RefCell};
 use std::ffi::c_void;
@@ -31,14 +35,18 @@ use windows_sys::Win32::UI::WindowsAndMessaging::*;
 
 use crate::actions::ACTIONS;
 use crate::hook::{self, Key, Rule, WM_APP_TRIGGERED};
+use crate::i18n::{self, t, Lang};
 use crate::keys;
 
 const ID_MASTER: i32 = 10;
 const ID_STATUS: i32 = 11;
 const ID_PANEL: i32 = 12;
 const ID_LOG: i32 = 13;
+const ID_HISTORY_LABEL: i32 = 14;
 const ID_ADD: i32 = 20;
-/// Controles das linhas: ID = ROW_ID_BASE + uid * 4 + parte.
+/// Language menu items: ID = ID_LANG_BASE + index in `Lang::ALL`.
+const ID_LANG_BASE: i32 = 100;
+/// Row controls: ID = ROW_ID_BASE + uid * 4 + part.
 const ROW_ID_BASE: i32 = 1000;
 const PART_HOTKEY: usize = 0;
 const PART_ACTION: usize = 1;
@@ -49,9 +57,6 @@ const ROW_H: i32 = 36;
 const PAD: i32 = 6;
 const MAX_LOG_LINES: isize = 200;
 const ACTCTX_FLAG_RESOURCE_NAME_VALID: u32 = 0x8;
-
-const CAPTURE_TEXT: &str = "Pressione uma tecla...";
-const EMPTY_KEY_TEXT: &str = "Clique para definir a tecla";
 
 static DPI: AtomicI32 = AtomicI32::new(96);
 static FONT: AtomicPtr<c_void> = AtomicPtr::new(null_mut());
@@ -65,7 +70,7 @@ struct Row {
     key: Option<Key>,
     action: usize,
     enabled: bool,
-    /// Controles: tecla, ação, ativar/desativar, excluir.
+    /// Controls: key, action, enable/disable, delete.
     ctl: [HWND; 4],
 }
 
@@ -74,9 +79,9 @@ struct App {
     panel: HWND,
     add: HWND,
     rows: Vec<Row>,
-    /// Botão geral: desligado = nenhuma tecla é remapeada, sem perder o estado das linhas.
+    /// Master switch: off = no key is remapped, without losing the rows' state.
     master: bool,
-    /// Linha cuja tecla está sendo capturada.
+    /// Row whose key is being captured.
     capturing: Option<u32>,
     next_uid: u32,
     scroll: i32,
@@ -84,24 +89,24 @@ struct App {
 
 thread_local! {
     static APP: RefCell<Option<App>> = const { RefCell::new(None) };
-    /// Tecla recém-capturada: seus repeats e o key-up não devem chegar aos controles.
+    /// Just-captured key: its repeats and key-up must not reach the controls.
     static SWALLOW: Cell<Option<(u32, bool)>> = const { Cell::new(None) };
 }
 
-/// Acesso ao estado. A closure só deve ler/alterar dados: chamadas Win32 que podem
-/// reentrar nos window procs ficam fora dela. Se o estado já estiver em uso (reentrada),
-/// retorna None.
+/// State access. The closure must only read/change data: Win32 calls that may re-enter
+/// the window procs stay outside of it. Returns None if the state is already borrowed
+/// (re-entrancy).
 fn with<R>(f: impl FnOnce(&mut App) -> R) -> Option<R> {
     APP.with(|a| a.try_borrow_mut().ok().and_then(|mut g| g.as_mut().map(f)))
 }
 
-/// Converte para UTF-16 terminado em zero (formato das APIs "W" do Windows).
+/// Converts to null-terminated UTF-16 (the format of the Windows "W" APIs).
 fn w(s: &str) -> Vec<u16> {
     s.encode_utf16().chain(std::iter::once(0)).collect()
 }
 
-/// Ativa os estilos visuais (Common Controls v6) sem precisar embutir um manifesto no exe:
-/// usa o manifesto que o próprio shell32.dll carrega como recurso 124.
+/// Enables visual styles (Common Controls v6) without embedding a manifest in the exe:
+/// uses the manifest that shell32.dll itself ships as resource 124.
 fn enable_visual_styles() {
     unsafe {
         let mut dir = [0u16; 260];
@@ -127,7 +132,7 @@ fn enable_visual_styles() {
     }
 }
 
-/// Cria um controle filho com a fonte do sistema (coordenadas em pixels a 96 DPI).
+/// Creates a child control with the system font (coordinates in pixels at 96 DPI).
 unsafe fn child(parent: HWND, class: &str, text: &str, style: u32, id: i32, (x, y, cx, cy): (i32, i32, i32, i32)) -> HWND {
     child_ex(parent, 0, class, text, style, id, (x, y, cx, cy))
 }
@@ -178,13 +183,13 @@ unsafe fn log(msg: &str) {
 }
 
 fn key_label(key: Option<Key>) -> String {
-    key.map(|k| keys::name(&k)).unwrap_or_else(|| "(sem tecla)".into())
+    key.map(|k| keys::name(&k)).unwrap_or_else(|| t().no_key.into())
 }
 
 // ---------------------------------------------------------------------------------------
-// Estado -> hook e status
+// State -> hook and status
 
-/// Envia as regras ativas ao hook e atualiza o status e o botão geral.
+/// Sends the active rules to the hook and updates the status and the master button.
 unsafe fn sync() {
     let Some((rules, master, main)) = with(|a| {
         let rules: Vec<Rule> = a
@@ -199,20 +204,21 @@ unsafe fn sync() {
     };
     hook::set_rules(&rules);
 
+    let s = t();
     let status = if !master {
-        "○ Remapeamento desativado (geral)".to_string()
+        s.status_master_off.to_string()
     } else if rules.is_empty() {
-        "○ Nenhuma tecla ativa".to_string()
+        s.status_none.to_string()
     } else {
-        format!("● {} tecla(s) remapeada(s) ativa(s)", rules.len())
+        (s.status_active)(rules.len())
     };
     let status_ctl = GetDlgItem(main, ID_STATUS);
     set_text(status_ctl, &status);
     InvalidateRect(status_ctl, null(), 1);
-    set_text(GetDlgItem(main, ID_MASTER), if master { "Desativar tudo" } else { "Ativar tudo" });
+    set_text(GetDlgItem(main, ID_MASTER), if master { s.master_disable } else { s.master_enable });
 }
 
-/// Atualiza os textos e estados dos controles de uma linha.
+/// Updates the texts and states of a row's controls.
 unsafe fn update_row(uid: u32) {
     let Some(Some((ctl, key, action, enabled, capturing))) = with(|a| {
         let capturing = a.capturing == Some(uid);
@@ -220,23 +226,33 @@ unsafe fn update_row(uid: u32) {
     }) else {
         return;
     };
+    let s = t();
     let hotkey = if capturing {
-        CAPTURE_TEXT.to_string()
+        s.capture_prompt.to_string()
     } else {
-        key.map(|k| keys::name(&k)).unwrap_or_else(|| EMPTY_KEY_TEXT.into())
+        key.map(|k| keys::name(&k)).unwrap_or_else(|| s.empty_key.into())
     };
     set_text(ctl[PART_HOTKEY], &hotkey);
-    // Botão da tecla "afundado" enquanto captura.
+    // Key button stays "pressed" while capturing.
     SendMessageW(ctl[PART_HOTKEY], BM_SETSTATE, capturing as WPARAM, 0);
     SendMessageW(ctl[PART_ACTION], CB_SETCURSEL, action, 0);
     EnableWindow(ctl[PART_ACTION], enabled as i32);
-    set_text(ctl[PART_TOGGLE], if enabled { "Desativar" } else { "Ativar" });
+    set_text(ctl[PART_TOGGLE], if enabled { s.toggle_disable } else { s.toggle_enable });
+    set_text(ctl[PART_DELETE], s.delete);
+}
+
+/// Fills an action combo box with the action names in the current language.
+unsafe fn fill_actions(combo: HWND) {
+    SendMessageW(combo, CB_RESETCONTENT, 0, 0);
+    for name in t().action_names {
+        SendMessageW(combo, CB_ADDSTRING, 0, w(name).as_ptr() as LPARAM);
+    }
 }
 
 // ---------------------------------------------------------------------------------------
-// Painel rolável
+// Scrollable panel
 
-/// Posiciona as linhas e o botão Adicionar conforme a rolagem e atualiza a barra de rolagem.
+/// Positions the rows and the Add button according to the scroll and updates the scroll bar.
 unsafe fn relayout() {
     let Some((panel, add, ctls, mut scroll)) = with(|a| (a.panel, a.add, a.rows.iter().map(|r| r.ctl).collect::<Vec<_>>(), a.scroll)) else {
         return;
@@ -296,7 +312,7 @@ unsafe fn on_vscroll(panel: HWND, request: u32) {
 }
 
 // ---------------------------------------------------------------------------------------
-// Ações do usuário
+// User actions
 
 unsafe fn add_row() {
     let Some((panel, uid)) = with(|a| {
@@ -306,19 +322,18 @@ unsafe fn add_row() {
         return;
     };
     let id = |part: usize| ROW_ID_BASE + uid as i32 * 4 + part as i32;
-    let r = (0, 0, 10, 10); // posição definida no relayout
-    let hotkey = child(panel, "BUTTON", EMPTY_KEY_TEXT, WS_TABSTOP, id(PART_HOTKEY), r);
+    let r = (0, 0, 10, 10); // position is set in relayout
+    let s = t();
+    let hotkey = child(panel, "BUTTON", s.empty_key, WS_TABSTOP, id(PART_HOTKEY), r);
     let combo = child(panel, "COMBOBOX", "", WS_TABSTOP | WS_VSCROLL | CBS_DROPDOWNLIST as u32, id(PART_ACTION), r);
-    for action in ACTIONS {
-        SendMessageW(combo, CB_ADDSTRING, 0, w(action.name).as_ptr() as LPARAM);
-    }
-    let toggle = child(panel, "BUTTON", "Desativar", WS_TABSTOP, id(PART_TOGGLE), r);
-    let delete = child(panel, "BUTTON", "Excluir", WS_TABSTOP, id(PART_DELETE), r);
+    fill_actions(combo);
+    let toggle = child(panel, "BUTTON", s.toggle_disable, WS_TABSTOP, id(PART_TOGGLE), r);
+    let delete = child(panel, "BUTTON", s.delete, WS_TABSTOP, id(PART_DELETE), r);
 
     with(|a| {
         a.rows.push(Row { uid, key: None, action: 0, enabled: true, ctl: [hotkey, combo, toggle, delete] });
     });
-    scroll_to(i32::MAX); // mostra a linha nova
+    scroll_to(i32::MAX); // shows the new row
     update_row(uid);
     SetFocus(hotkey);
     start_capture(uid);
@@ -326,14 +341,14 @@ unsafe fn add_row() {
 
 unsafe fn start_capture(uid: u32) {
     let previous = with(|a| a.capturing.replace(uid)).flatten();
-    // Durante a captura o hook repassa tudo, para a janela receber até teclas já remapeadas.
+    // While capturing, the hook passes everything on so the window gets even remapped keys.
     hook::set_paused(true);
     if let Some(prev) = previous.filter(|&p| p != uid) {
         update_row(prev);
     }
     update_row(uid);
     if let Some(Some(i)) = with(|a| a.rows.iter().position(|r| r.uid == uid)) {
-        log(&format!("Linha {}: pressione a tecla a reprogramar (Esc cancela)", i + 1));
+        log(&(t().log_capture)(i + 1));
     }
 }
 
@@ -344,10 +359,10 @@ unsafe fn cancel_capture() {
     }
 }
 
-/// Captura pelo loop de mensagens (como o controle Hotkey do Windows): enquanto uma linha
-/// está em captura, a próxima tecla que chega à janela (WM_KEYDOWN/WM_SYSKEYDOWN) define a
-/// tecla da linha. O lParam traz o scan code e a flag extended, os mesmos dados que o hook
-/// usa para comparar. Retorna true se a mensagem foi consumida.
+/// Capture through the message loop (like the Windows Hotkey control): while a row is
+/// capturing, the next key that reaches the window (WM_KEYDOWN/WM_SYSKEYDOWN) becomes the
+/// row's key. lParam carries the scan code and the extended flag, the same data the hook
+/// compares. Returns true if the message was consumed.
 unsafe fn capture_filter(msg: &MSG) -> bool {
     if !matches!(msg.message, WM_KEYDOWN | WM_SYSKEYDOWN | WM_KEYUP | WM_SYSKEYUP) {
         return false;
@@ -366,11 +381,11 @@ unsafe fn capture_filter(msg: &MSG) -> bool {
         return false;
     }
     let mut vk = msg.wParam as u16;
-    // Print Screen não gera WM_KEYDOWN, só WM_KEYUP; os demais key-ups são ignorados.
+    // Print Screen sends no WM_KEYDOWN, only WM_KEYUP; other key-ups are ignored.
     if !down && vk != VK_SNAPSHOT {
         return true;
     }
-    // Shift/Ctrl/Alt chegam genéricos; o scan code diz se é o esquerdo ou o direito.
+    // Shift/Ctrl/Alt arrive generic; the scan code tells left from right.
     if matches!(vk, VK_SHIFT | VK_CONTROL | VK_MENU) {
         let ext_scan = scan | if extended { 0xE000 } else { 0 };
         vk = MapVirtualKeyW(ext_scan, MAPVK_VSC_TO_VK_EX) as u16;
@@ -396,7 +411,7 @@ unsafe fn on_captured(key: Key) {
     .flatten();
     if let Some(i) = duplicate {
         MessageBeep(MB_ICONWARNING);
-        log(&format!("{name} já está em uso na linha {}", i + 1));
+        log(&(t().log_key_in_use)(&name, i + 1));
         update_row(uid);
         return;
     }
@@ -409,7 +424,7 @@ unsafe fn on_captured(key: Key) {
     update_row(uid);
     sync();
     if let Some((i, action)) = info {
-        log(&format!("Linha {}: {} → {}", i + 1, name, ACTIONS[action].name));
+        log(&(t().log_mapped)(i + 1, &name, t().action_names[action]));
     }
 }
 
@@ -424,8 +439,8 @@ unsafe fn toggle_row(uid: u32) {
     update_row(uid);
     sync();
     if let Some((i, enabled, key)) = info {
-        let verb = if enabled { "ativada" } else { "desativada" };
-        log(&format!("Linha {} ({}) {verb}", i + 1, key_label(key)));
+        let msg = if enabled { t().log_row_enabled } else { t().log_row_disabled };
+        log(&msg(i + 1, &key_label(key)));
     }
 }
 
@@ -446,12 +461,12 @@ unsafe fn delete_row(uid: u32) {
     }
     relayout();
     sync();
-    log(&format!("Linha {} ({}) excluída", i + 1, key_label(key)));
+    log(&(t().log_row_deleted)(i + 1, &key_label(key)));
 }
 
 unsafe fn action_changed(uid: u32, combo: HWND) {
     let sel = SendMessageW(combo, CB_GETCURSEL, 0, 0);
-    let Ok(action) = usize::try_from(sel) else { return };
+    let Some(action) = usize::try_from(sel).ok().filter(|&a| a < ACTIONS.len()) else { return };
     let info = with(|a| {
         let i = a.rows.iter().position(|r| r.uid == uid)?;
         a.rows[i].action = action;
@@ -460,7 +475,7 @@ unsafe fn action_changed(uid: u32, combo: HWND) {
     .flatten();
     sync();
     if let Some((i, Some(key))) = info {
-        log(&format!("Linha {}: {} → {}", i + 1, keys::name(&key), ACTIONS[action].name));
+        log(&(t().log_mapped)(i + 1, &keys::name(&key), t().action_names[action]));
     }
 }
 
@@ -472,10 +487,60 @@ unsafe fn toggle_master() {
     });
     sync();
     match master {
-        Some(true) => log("Remapeamento reativado"),
-        Some(false) => log("Remapeamento desativado: todas as teclas voltaram ao normal"),
+        Some(true) => log(t().log_master_on),
+        Some(false) => log(t().log_master_off),
         None => {}
     }
+}
+
+// ---------------------------------------------------------------------------------------
+// Language
+
+/// Builds the menu bar in the current language, with the current language checked.
+unsafe fn build_menu() -> HMENU {
+    let bar = CreateMenu();
+    let langs = CreatePopupMenu();
+    for (i, lang) in Lang::ALL.iter().enumerate() {
+        AppendMenuW(langs, MF_STRING, (ID_LANG_BASE + i as i32) as usize, w(lang.native_name()).as_ptr());
+    }
+    let current = Lang::ALL.iter().position(|&l| l == i18n::current()).unwrap_or(0) as u32;
+    let first = ID_LANG_BASE as u32;
+    let last = first + Lang::ALL.len() as u32 - 1;
+    CheckMenuRadioItem(langs, first, last, first + current, MF_BYCOMMAND);
+    AppendMenuW(bar, MF_POPUP, langs as usize, w(t().menu_language).as_ptr());
+    bar
+}
+
+/// Re-applies every visible text in the current language.
+unsafe fn retranslate() {
+    let Some((main, add, rows)) = with(|a| {
+        (a.main, a.add, a.rows.iter().map(|r| (r.uid, r.ctl[PART_ACTION])).collect::<Vec<_>>())
+    }) else {
+        return;
+    };
+    let old_menu = GetMenu(main);
+    SetMenu(main, build_menu());
+    if !old_menu.is_null() {
+        DestroyMenu(old_menu);
+    }
+    DrawMenuBar(main);
+
+    set_text(add, t().add);
+    set_text(GetDlgItem(main, ID_HISTORY_LABEL), t().history);
+    for (uid, combo) in rows {
+        fill_actions(combo);
+        update_row(uid); // also restores the combo selection
+    }
+    sync();
+}
+
+unsafe fn set_language(lang: Lang) {
+    if lang == i18n::current() {
+        return;
+    }
+    i18n::set(lang);
+    retranslate();
+    log(&(t().log_language)(lang.native_name()));
 }
 
 // ---------------------------------------------------------------------------------------
@@ -491,7 +556,7 @@ unsafe extern "system" fn panel_proc(hwnd: HWND, msg: u32, wparam: WPARAM, lpara
             } else if id >= ROW_ID_BASE {
                 let uid = ((id - ROW_ID_BASE) / 4) as u32;
                 match (((id - ROW_ID_BASE) % 4) as usize, notify) {
-                    // Clicar de novo durante a captura não cancela (só o Esc cancela).
+                    // Clicking again while capturing doesn't cancel (only Esc does).
                     (PART_HOTKEY, BN_CLICKED) => {
                         if with(|a| a.capturing == Some(uid)) != Some(true) {
                             start_capture(uid);
@@ -523,8 +588,15 @@ unsafe extern "system" fn panel_proc(hwnd: HWND, msg: u32, wparam: WPARAM, lpara
 unsafe extern "system" fn wnd_proc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
     match msg {
         WM_COMMAND => {
-            if (wparam & 0xffff) as i32 == ID_MASTER && ((wparam >> 16) & 0xffff) as u32 == BN_CLICKED {
+            let id = (wparam & 0xffff) as i32;
+            let notify = ((wparam >> 16) & 0xffff) as u32;
+            if id == ID_MASTER && notify == BN_CLICKED {
                 toggle_master();
+            } else if lparam == 0 && id >= ID_LANG_BASE {
+                // Menu item (lParam is 0 for menu commands).
+                if let Some(&lang) = Lang::ALL.get((id - ID_LANG_BASE) as usize) {
+                    set_language(lang);
+                }
             }
             0
         }
@@ -534,19 +606,19 @@ unsafe extern "system" fn wnd_proc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam:
             })
             .flatten();
             if let Some((i, key, action)) = info {
-                log(&format!("[linha {}] {} → {}", i + 1, key_label(key), ACTIONS[action].name));
+                log(&(t().log_triggered)(i + 1, &key_label(key), t().action_names[action]));
             }
             0
         }
         WM_ACTIVATEAPP => {
-            // Saiu do app: não captura teclas digitadas em outras janelas.
+            // Left the app: don't capture keys typed in other windows.
             if wparam == 0 {
                 cancel_capture();
             }
             0
         }
         WM_MOUSEWHEEL => {
-            // Rolagem sobre a janela principal rola o painel de linhas.
+            // Scrolling over the main window scrolls the rows panel.
             if let Some(panel) = with(|a| a.panel) {
                 return SendMessageW(panel, msg, wparam, lparam);
             }
@@ -571,16 +643,16 @@ unsafe extern "system" fn wnd_proc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam:
     }
 }
 
-/// Há alguma regra efetivamente ativa (para a cor do status)?
+/// True if no rule is effectively active (for the status color).
 fn no_active_rules() -> bool {
     with(|a| !a.master || !a.rows.iter().any(|r| r.enabled && r.key.is_some())).unwrap_or(true)
 }
 
 // ---------------------------------------------------------------------------------------
 
-/// Ícone do app (recurso 1, embutido pelo build.rs) no tamanho do sistema indicado
-/// (SM_CXICON = barra de tarefas/Alt+Tab, SM_CXSMICON = barra de título).
-/// Sem o recurso, usa o ícone padrão do Windows.
+/// App icon (resource 1, embedded by build.rs) at the given system size
+/// (SM_CXICON = taskbar/Alt+Tab, SM_CXSMICON = title bar).
+/// Without the resource, falls back to the default Windows icon.
 unsafe fn app_icon(metric: SYSTEM_METRICS_INDEX) -> HICON {
     let size = GetSystemMetrics(metric);
     let icon = LoadImageW(GetModuleHandleW(null()), std::ptr::without_provenance(1), IMAGE_ICON, size, size, LR_DEFAULTCOLOR);
@@ -607,7 +679,7 @@ unsafe fn register_class(name: &[u16], proc_: WNDPROC, background: i32, icon: bo
         hIconSm: if icon { app_icon(SM_CXSMICON) } else { null_mut() },
     };
     if RegisterClassExW(&wc) == 0 {
-        return Err(format!("RegisterClassExW falhou ({})", GetLastError()));
+        return Err(format!("RegisterClassExW failed ({})", GetLastError()));
     }
     Ok(())
 }
@@ -629,7 +701,8 @@ pub fn run() -> Result<(), String> {
 
         let style = WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX;
         let mut rect = RECT { left: 0, top: 0, right: s(520), bottom: s(414) };
-        AdjustWindowRectEx(&mut rect, style, 0, 0);
+        // bMenu = 1: the client area keeps its size below the menu bar.
+        AdjustWindowRectEx(&mut rect, style, 1, 0);
         let main = CreateWindowExW(
             0,
             main_class.as_ptr(),
@@ -640,17 +713,18 @@ pub fn run() -> Result<(), String> {
             rect.right - rect.left,
             rect.bottom - rect.top,
             null_mut(),
-            null_mut(),
+            build_menu(),
             GetModuleHandleW(null()),
             null(),
         );
         if main.is_null() {
-            return Err(format!("CreateWindowExW falhou ({})", GetLastError()));
+            return Err(format!("CreateWindowExW failed ({})", GetLastError()));
         }
 
-        child(main, "BUTTON", "Desativar tudo", WS_TABSTOP, ID_MASTER, (12, 10, 130, 28));
+        let s = t();
+        child(main, "BUTTON", s.master_disable, WS_TABSTOP, ID_MASTER, (12, 10, 130, 28));
         child(main, "STATIC", "", 0, ID_STATUS, (154, 16, 354, 20));
-        // WS_EX_CONTROLPARENT: o Tab navega pelos controles das linhas.
+        // WS_EX_CONTROLPARENT: Tab navigates through the row controls.
         let panel = child_ex(
             main,
             WS_EX_CLIENTEDGE | WS_EX_CONTROLPARENT,
@@ -660,8 +734,8 @@ pub fn run() -> Result<(), String> {
             ID_PANEL,
             (12, 46, 496, 240),
         );
-        let add = child(panel, "BUTTON", "+ Adicionar", WS_TABSTOP, ID_ADD, (6, PAD, 130, 28));
-        child(main, "STATIC", "Histórico:", 0, -1, (12, 296, 100, 20));
+        let add = child(panel, "BUTTON", s.add, WS_TABSTOP, ID_ADD, (6, PAD, 130, 28));
+        child(main, "STATIC", s.history, 0, ID_HISTORY_LABEL, (12, 296, 100, 20));
         child(
             main,
             "LISTBOX",
@@ -693,7 +767,7 @@ pub fn run() -> Result<(), String> {
             if capture_filter(&msg) {
                 continue;
             }
-            // IsDialogMessage dá navegação com Tab entre os controles.
+            // IsDialogMessage provides Tab navigation between the controls.
             if IsDialogMessageW(main, &msg) == 0 {
                 TranslateMessage(&msg);
                 DispatchMessageW(&msg);

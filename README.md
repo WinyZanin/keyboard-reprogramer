@@ -1,56 +1,72 @@
 # Keyboard Reprogramer
 
-<img src="assets/icon.png" width="96" alt="Ícone">
+**English** | [Português (Brasil)](README.pt-BR.md)
 
-Aplicativo para Windows, escrito em Rust, que reprograma uma tecla pouco usada (ex.: **Insert**) para executar uma **ação de controle de mídia**. É útil em teclados sem teclas de mídia.
+<img src="assets/icon.png" width="96" alt="Icon">
 
-Enquanto o app está aberto, a tecla escolhida **não executa mais a função original** e dispara a ação de mídia. Ao fechar o app, a tecla volta ao normal.
+Windows app, written in Rust, that reprograms rarely used keys (e.g. **Insert**) to perform **media control actions**. Useful on keyboards without media keys.
 
-## Uso
+While the app is open, the chosen key **no longer performs its original function** and triggers the media action instead. When the app is closed, the key goes back to normal.
 
-1. Execute `keyboard-reprogramer.exe`.
-2. Clique em **+ Adicionar**. Uma linha nova aparece já esperando: **aperte a tecla** que quer reprogramar (qualquer tecla física, inclusive Print Screen, Pause, Menu ou teclas do teclado numérico). **Esc** cancela.
-3. Escolha a ação de mídia no menu da linha: Play/Pause, Próxima faixa, Faixa anterior, Stop, Volume +, Volume - ou Mudo.
-4. Repita para quantas teclas quiser. Em cada linha:
-   - Clique no botão da tecla para trocar por outra.
-   - **Desativar/Ativar** liga e desliga só aquela tecla.
-   - **Excluir** remove a linha.
-5. **Desativar tudo**, no topo, devolve todas as teclas ao normal sem perder a configuração das linhas; **Ativar tudo** religa.
-6. O histórico mostra cada acionamento. Fechar a janela devolve todas as teclas ao normal.
+## Usage
 
-Uma mesma tecla não pode estar em duas linhas. As teclas são identificadas pela posição física (scan code), então o Insert e o Num 0 são teclas diferentes, com o NumLock ligado ou não.
+1. Run `keyboard-reprogramer.exe`.
+2. Click **+ Add**. A new row appears, already waiting: **press the key** you want to reprogram (any physical key, including Print Screen, Pause, Menu or numeric keypad keys). **Esc** cancels.
+3. Choose the media action in the row's menu: Play/Pause, Next track, Previous track, Stop, Volume +, Volume - or Mute.
+4. Repeat for as many keys as you want. In each row:
+   - Click the key button to change it to another key.
+   - **Disable/Enable** turns only that key off and on.
+   - **Delete** removes the row.
+5. **Disable all**, at the top, returns every key to normal without losing the rows' configuration; **Enable all** turns them back on.
+6. The history shows every trigger. Closing the window returns all keys to normal.
 
-Volume +/- repete enquanto a tecla está segurada. As outras ações disparam uma vez por pressionamento.
+The same key cannot be in two rows. Keys are identified by their physical position (scan code), so Insert and Num 0 are different keys, whether NumLock is on or not.
+
+Volume +/- repeats while the key is held down. The other actions fire once per press.
+
+## Language
+
+The **Language** menu, below the title bar, switches the interface language instantly. Available: **English** and **Português (Brasil)**. On startup the app follows the Windows display language (Portuguese → Português, anything else → English). The choice is not saved yet.
+
+### Adding a language
+
+All interface text lives in [`src/i18n.rs`](src/i18n.rs), as one `Strings` table per language:
+
+1. Add a variant to `Lang` and to `Lang::ALL`, and its name (in the language itself) to `native_name()`.
+2. Create a new `static` `Strings` table and return it from `Lang::strings()`.
+3. Optionally, map the Windows language in `detect()`.
+
+The tables are plain Rust structs, so a missing translation is a compile error.
 
 ## Interface
 
-Usa a API Win32 pura (`CreateWindowExW` com os controles nativos `COMBOBOX`, `BUTTON`, `STATIC` e `LISTBOX` e um painel rolável próprio) através do crate `windows-sys`, sem framework de GUI. Os estilos visuais modernos (Common Controls v6) são ativados em tempo de execução com o manifesto do `shell32.dll`, então não é preciso compilador de recursos. O app usa a fonte do sistema e ajusta a escala ao DPI.
+Uses the pure Win32 API (`CreateWindowExW` with the native `COMBOBOX`, `BUTTON`, `STATIC` and `LISTBOX` controls, a menu bar and a custom scrollable panel) through the `windows-sys` crate, with no GUI framework. Modern visual styles (Common Controls v6) are enabled at runtime with the `shell32.dll` manifest, so no resource compiler is needed. The app uses the system font and scales with DPI.
 
-## Como funciona
+## How it works
 
-- `SetWindowsHookExW(WH_KEYBOARD_LL)` instala um hook global que vê todas as teclas antes de chegarem aos aplicativos.
-- Quando a tecla escolhida passa pelo hook, o callback **retorna 1**, descartando o evento, e envia a tecla virtual de mídia (`VK_MEDIA_PLAY_PAUSE`, `VK_VOLUME_UP`...) com `SendInput`.
-- As teclas que o próprio app envia levam uma marca (`dwExtraInfo`) e são ignoradas pelo hook, o que evita recursão. Teclas injetadas por outros programas (teclado virtual, acesso remoto, software do teclado) funcionam normalmente.
-- A captura da tecla ("Pressione uma tecla...") usa as mensagens normais da janela em foco (`WM_KEYDOWN`/`WM_SYSKEYDOWN`), como o controle Hotkey do Windows. O `lParam` traz o scan code e a flag extended. Enquanto isso, o hook fica em pausa e repassa tudo.
-- As regras comparam scan code + flag `LLKHF_EXTENDED`, que identificam a tecla física.
+- `SetWindowsHookExW(WH_KEYBOARD_LL)` installs a global hook that sees every key before it reaches applications.
+- When the chosen key goes through the hook, the callback **returns 1**, dropping the event, and sends the media virtual key (`VK_MEDIA_PLAY_PAUSE`, `VK_VOLUME_UP`...) with `SendInput`.
+- Keys sent by the app itself carry a tag (`dwExtraInfo`) and are ignored by the hook, which avoids recursion. Keys injected by other programs (on-screen keyboard, remote access, keyboard software) work normally.
+- Key capture ("Press a key...") uses the regular messages of the focused window (`WM_KEYDOWN`/`WM_SYSKEYDOWN`), like the Windows Hotkey control. `lParam` carries the scan code and the extended flag. Meanwhile the hook is paused and passes everything through.
+- Rules compare scan code + the `LLKHF_EXTENDED` flag, which identify the physical key.
 
-## Compilar
+## Building
 
-Requer o Rust (`winget install Rustlang.Rustup`). O toolchain GNU dispensa o Visual Studio Build Tools:
+Requires Rust (`winget install Rustlang.Rustup`). The GNU toolchain doesn't need Visual Studio Build Tools:
 
 ```sh
 rustup default stable-x86_64-pc-windows-gnu
 cargo build --release
 ```
 
-Saída: `target\release\keyboard-reprogramer.exe`, um executável único e portátil.
+Output: `target\release\keyboard-reprogramer.exe`, a single portable executable.
 
-## Ícone
+## Icon
 
-`assets/icon.ico` (16 a 256 px) é gerado por `python tools/make_icon.py` (requer Pillow). O `build.rs` monta a seção de recursos (`.rsrc`) com o ícone e as informações de versão do `Cargo.toml` direto em Rust e a entrega ao linker. Não é preciso `windres` nem `rc.exe`.
+`assets/icon.ico` (16 to 256 px) is generated by `python tools/make_icon.py` (requires Pillow). `build.rs` builds the resource section (`.rsrc`) with the icon and the version information from `Cargo.toml` directly in Rust and hands it to the linker. Neither `windres` nor `rc.exe` is needed.
 
-## Limitações
+## Limitations
 
-- Só funciona com o app aberto, e a configuração ainda não é salva ao fechar.
-- Uma tecla por vez: combinações (ex.: Ctrl+F1) ainda não são suportadas.
-- Em janelas de programas executados **como administrador**, o Windows (UIPI) não deixa o hook bloquear a tecla. Para cobrir esses casos, execute o `.exe` também como administrador.
+- Only works while the app is open, and the configuration (keys and language) is not saved on exit yet.
+- One key at a time: combinations (e.g. Ctrl+F1) are not supported yet.
+- In windows of programs running **as administrator**, Windows (UIPI) doesn't let the hook block the key. To cover those cases, run the `.exe` as administrator too.

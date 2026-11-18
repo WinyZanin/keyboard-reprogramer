@@ -1,8 +1,8 @@
-//! Embute no executável o ícone (assets/icon.ico) e as informações de versão.
+//! Embeds the icon (assets/icon.ico) and the version information into the executable.
 //!
-//! Gera direto um objeto COFF com a seção `.rsrc`, no mesmo formato que `windres`/`cvtres`
-//! produzem, e o passa para o linker. Assim o build não depende de compilador de
-//! recursos nenhum: basta o `cargo`.
+//! Directly generates a COFF object with a `.rsrc` section, in the same format that
+//! `windres`/`cvtres` produce, and hands it to the linker. This way the build doesn't
+//! depend on any resource compiler: `cargo` is enough.
 
 use std::env;
 use std::fs;
@@ -11,8 +11,8 @@ use std::path::PathBuf;
 const RT_ICON: u16 = 3;
 const RT_GROUP_ICON: u16 = 14;
 const RT_VERSION: u16 = 16;
-/// Português (Brasil).
-const LANG: u32 = 0x0416;
+/// English (United States).
+const LANG: u32 = 0x0409;
 
 fn main() {
     println!("cargo:rerun-if-changed=assets/icon.ico");
@@ -26,19 +26,19 @@ fn main() {
         "x86" => (0x014c, 7),          // IMAGE_REL_I386_DIR32NB
         "aarch64" => (0xAA64, 2),      // IMAGE_REL_ARM64_ADDR32NB
         other => {
-            println!("cargo:warning=arquitetura {other} sem suporte a recursos; exe sem ícone");
+            println!("cargo:warning=architecture {other} has no resource support; exe without icon");
             return;
         }
     };
 
-    let ico = fs::read("assets/icon.ico").expect("assets/icon.ico não encontrado");
+    let ico = fs::read("assets/icon.ico").expect("assets/icon.ico not found");
     let mut resources = icon_resources(&ico);
     resources.push((RT_VERSION, 1, version_info()));
 
     let obj = coff_object(machine, reloc_type, &resources);
     let out = PathBuf::from(env::var("OUT_DIR").unwrap()).join("resources.o");
     fs::write(&out, obj).unwrap();
-    // Passado direto ao linker: o objeto entra no exe com a seção .rsrc.
+    // Passed straight to the linker: the object goes into the exe with its .rsrc section.
     println!("cargo:rustc-link-arg-bins={}", out.display());
 }
 
@@ -50,14 +50,14 @@ fn u32_at(b: &[u8], i: usize) -> u32 {
     u32::from_le_bytes(b[i..i + 4].try_into().unwrap())
 }
 
-/// Converte um .ico em recursos: cada imagem vira um RT_ICON (IDs 1..n) e o
-/// diretório vira o RT_GROUP_ICON de ID 1, que é o que o Explorer e o LoadImage usam.
+/// Converts an .ico into resources: each image becomes an RT_ICON (IDs 1..n) and the
+/// directory becomes RT_GROUP_ICON ID 1, which is what Explorer and LoadImage use.
 fn icon_resources(ico: &[u8]) -> Vec<(u16, u16, Vec<u8>)> {
-    assert!(u16_at(ico, 2) == 1, "assets/icon.ico não é um ícone válido");
+    assert!(u16_at(ico, 2) == 1, "assets/icon.ico is not a valid icon");
     let count = u16_at(ico, 4) as usize;
     let mut resources = Vec::new();
     let mut group = Vec::new();
-    group.extend_from_slice(&[0, 0, 1, 0]); // reserved, type = ícone
+    group.extend_from_slice(&[0, 0, 1, 0]); // reserved, type = icon
     group.extend_from_slice(&(count as u16).to_le_bytes());
     for i in 0..count {
         let e = 6 + i * 16;
@@ -65,7 +65,7 @@ fn icon_resources(ico: &[u8]) -> Vec<(u16, u16, Vec<u8>)> {
         let offset = u32_at(ico, e + 12) as usize;
         let id = (i + 1) as u16;
         resources.push((RT_ICON, id, ico[offset..offset + size].to_vec()));
-        // GRPICONDIRENTRY: os mesmos 12 primeiros bytes da entrada do .ico + ID do recurso.
+        // GRPICONDIRENTRY: the same first 12 bytes of the .ico entry + resource ID.
         group.extend_from_slice(&ico[e..e + 12]);
         group.extend_from_slice(&id.to_le_bytes());
     }
@@ -83,7 +83,7 @@ fn pad4(buf: &mut Vec<u8>) {
     }
 }
 
-/// Bloco genérico da estrutura VS_VERSIONINFO: wLength, wValueLength, wType, szKey, Value, Children.
+/// Generic VS_VERSIONINFO block: wLength, wValueLength, wType, szKey, Value, Children.
 fn ver_block(key: &str, value: &[u8], value_len: u16, text: bool, children: &[Vec<u8>]) -> Vec<u8> {
     let mut b = vec![0u8; 6];
     b[2..4].copy_from_slice(&value_len.to_le_bytes());
@@ -105,7 +105,7 @@ fn ver_string(key: &str, value: &str) -> Vec<u8> {
     ver_block(key, &v, (v.len() / 2) as u16, true, &[])
 }
 
-/// Recurso RT_VERSION (aba "Detalhes" das propriedades do exe), com a versão do Cargo.toml.
+/// RT_VERSION resource (the "Details" tab of the exe properties), with the Cargo.toml version.
 fn version_info() -> Vec<u8> {
     let part = |name: &str| env::var(name).unwrap().parse::<u32>().unwrap_or(0);
     let (major, minor, patch) = (
@@ -119,14 +119,14 @@ fn version_info() -> Vec<u8> {
 
     let mut fixed = Vec::new();
     for v in [
-        0xFEEF04BDu32, // assinatura
-        0x0001_0000,   // versão da estrutura
+        0xFEEF04BDu32, // signature
+        0x0001_0000,   // struct version
         ms, ls,        // FileVersion
         ms, ls,        // ProductVersion
         0x3F, 0,       // FileFlagsMask, FileFlags
         0x0004_0004,   // VOS_NT_WINDOWS32
-        1, 0,          // VFT_APP, subtipo
-        0, 0,          // data
+        1, 0,          // VFT_APP, subtype
+        0, 0,          // date
     ] {
         fixed.extend_from_slice(&v.to_le_bytes());
     }
@@ -149,16 +149,16 @@ fn version_info() -> Vec<u8> {
     ver_block("VS_VERSION_INFO", &fixed, fixed.len() as u16, false, &[string_info, var_info])
 }
 
-/// Monta um objeto COFF com uma seção `.rsrc` contendo a árvore de recursos
-/// (tipo -> ID -> idioma -> dados). Os ponteiros para os dados são RVAs, resolvidos
-/// pelo linker através de relocações contra o símbolo da seção.
+/// Builds a COFF object with an `.rsrc` section holding the resource tree
+/// (type -> ID -> language -> data). Data pointers are RVAs, resolved by the linker
+/// through relocations against the section symbol.
 fn coff_object(machine: u16, reloc_type: u16, resources: &[(u16, u16, Vec<u8>)]) -> Vec<u8> {
     let mut res: Vec<&(u16, u16, Vec<u8>)> = resources.iter().collect();
-    res.sort_by_key(|r| (r.0, r.1)); // as entradas de cada diretório precisam estar ordenadas
+    res.sort_by_key(|r| (r.0, r.1)); // each directory's entries must be sorted
     let mut types: Vec<u16> = res.iter().map(|r| r.0).collect();
     types.dedup();
 
-    // Layout: raiz, diretórios de tipo, diretórios de idioma (1 por recurso), entradas de dados, dados.
+    // Layout: root, type directories, language directories (1 per resource), data entries, data.
     let dir_size = |entries: usize| 16 + 8 * entries;
     let root_size = dir_size(types.len());
     let mut type_dir_off = Vec::new();
@@ -183,7 +183,7 @@ fn coff_object(machine: u16, reloc_type: u16, resources: &[(u16, u16, Vec<u8>)])
     let put32 = |s: &mut Vec<u8>, at: usize, v: u32| s[at..at + 4].copy_from_slice(&v.to_le_bytes());
     const SUBDIR: u32 = 0x8000_0000;
 
-    // IMAGE_RESOURCE_DIRECTORY só com entradas por ID; as entradas vêm logo depois.
+    // IMAGE_RESOURCE_DIRECTORY with ID entries only; the entries follow right after.
     let write_dir = |s: &mut Vec<u8>, at: usize, entries: &[(u32, u32)]| {
         put16(s, at + 14, entries.len() as u16);
         for (i, (id, target)) in entries.iter().enumerate() {
@@ -207,23 +207,23 @@ fn coff_object(machine: u16, reloc_type: u16, resources: &[(u16, u16, Vec<u8>)])
     let mut relocs = Vec::new();
     for (i, r) in res.iter().enumerate() {
         write_dir(&mut sec, lang_dir_off[i], &[(LANG, data_entry_off[i] as u32)]);
-        // IMAGE_RESOURCE_DATA_ENTRY: RVA (offset na seção + relocação), tamanho, codepage.
+        // IMAGE_RESOURCE_DATA_ENTRY: RVA (section offset + relocation), size, codepage.
         put32(&mut sec, data_entry_off[i], data_off[i] as u32);
         put32(&mut sec, data_entry_off[i] + 4, r.2.len() as u32);
         sec[data_off[i]..data_off[i] + r.2.len()].copy_from_slice(&r.2);
         relocs.push(data_entry_off[i] as u32);
     }
 
-    // Objeto COFF: cabeçalho, 1 seção, dados, relocações, 1 símbolo, tabela de strings vazia.
+    // COFF object: header, 1 section, data, relocations, 1 symbol, empty string table.
     let raw_ptr = 20 + 40;
     let reloc_ptr = raw_ptr + sec.len();
     let sym_ptr = reloc_ptr + relocs.len() * 10;
     let mut o = Vec::new();
     o.extend_from_slice(&machine.to_le_bytes());
-    o.extend_from_slice(&1u16.to_le_bytes()); // seções
+    o.extend_from_slice(&1u16.to_le_bytes()); // sections
     o.extend_from_slice(&0u32.to_le_bytes()); // timestamp
     o.extend_from_slice(&(sym_ptr as u32).to_le_bytes());
-    o.extend_from_slice(&1u32.to_le_bytes()); // símbolos
+    o.extend_from_slice(&1u32.to_le_bytes()); // symbols
     o.extend_from_slice(&0u16.to_le_bytes()); // optional header
     o.extend_from_slice(&0u16.to_le_bytes()); // characteristics
 
@@ -242,15 +242,15 @@ fn coff_object(machine: u16, reloc_type: u16, resources: &[(u16, u16, Vec<u8>)])
     o.extend_from_slice(&sec);
     for r in relocs {
         o.extend_from_slice(&r.to_le_bytes());
-        o.extend_from_slice(&0u32.to_le_bytes()); // símbolo 0 (.rsrc)
+        o.extend_from_slice(&0u32.to_le_bytes()); // symbol 0 (.rsrc)
         o.extend_from_slice(&reloc_type.to_le_bytes());
     }
     o.extend_from_slice(b".rsrc\0\0\0");
-    o.extend_from_slice(&0u32.to_le_bytes()); // valor
-    o.extend_from_slice(&1i16.to_le_bytes()); // seção 1
-    o.extend_from_slice(&0u16.to_le_bytes()); // tipo
+    o.extend_from_slice(&0u32.to_le_bytes()); // value
+    o.extend_from_slice(&1i16.to_le_bytes()); // section 1
+    o.extend_from_slice(&0u16.to_le_bytes()); // type
     o.push(3); // IMAGE_SYM_CLASS_STATIC
     o.push(0); // aux
-    o.extend_from_slice(&4u32.to_le_bytes()); // tabela de strings vazia
+    o.extend_from_slice(&4u32.to_le_bytes()); // empty string table
     o
 }
