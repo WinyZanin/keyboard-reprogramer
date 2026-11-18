@@ -1,0 +1,64 @@
+﻿<!--
+  WiX Toolset v5 package for Keyboard Reprogramer.
+
+  Built by tools/package.ps1, which passes the version from Cargo.toml:
+    wix build installer\wix\Package.wxs -arch x64 -ext WixToolset.UI.wixext -d Version=X.Y.Z -o dist\...msi
+
+  Dual-purpose package: per user by default (no admin, %LOCALAPPDATA%\Programs);
+  `msiexec /i <msi> ALLUSERS=1` installs for all users under Program Files.
+  Optional desktop shortcut: `msiexec /i <msi> DESKTOPSHORTCUT=1`.
+-->
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs"
+     xmlns:ui="http://wixtoolset.org/schemas/v4/wxs/ui">
+
+  <?define AppName = "Keyboard Reprogramer" ?>
+  <?define AppExe = "keyboard-reprogramer.exe" ?>
+  <?define Root = "$(sys.SOURCEFILEDIR)..\.." ?>
+
+  <!-- Never change UpgradeCode: it ties every version together for major upgrades. -->
+  <Package Name="$(AppName)"
+           Manufacturer="WinyZanin"
+           Version="$(Version)"
+           UpgradeCode="CE2EFF82-CF41-4244-A962-EAE1D45DCD59"
+           Scope="perUserOrMachine"
+           Language="1033">
+
+    <MajorUpgrade DowngradeErrorMessage="A newer version of $(AppName) is already installed." />
+    <MediaTemplate EmbedCab="yes" CompressionLevel="high" />
+
+    <Icon Id="AppIcon" SourceFile="$(Root)\assets\icon.ico" />
+    <Property Id="ARPPRODUCTICON" Value="AppIcon" />
+
+    <!-- ProgramFiles6432Folder resolves to %LOCALAPPDATA%\Programs on per-user installs. -->
+    <StandardDirectory Id="ProgramFiles6432Folder">
+      <Directory Id="INSTALLFOLDER" Name="$(AppName)" />
+    </StandardDirectory>
+
+    <Feature Id="Main" Title="$(AppName)">
+      <Component Directory="INSTALLFOLDER">
+        <File Source="$(Root)\target\release\$(AppExe)" KeyPath="yes" />
+      </Component>
+
+      <Component Id="StartMenuShortcut" Directory="ProgramMenuFolder">
+        <Shortcut Name="$(AppName)" Target="[INSTALLFOLDER]$(AppExe)"
+                  WorkingDirectory="INSTALLFOLDER" Icon="AppIcon" />
+        <RegistryValue Root="HKMU" Key="Software\WinyZanin\$(AppName)"
+                       Name="StartMenuShortcut" Type="integer" Value="1" KeyPath="yes" />
+      </Component>
+
+      <Component Id="DesktopShortcut" Directory="DesktopFolder" Condition="DESKTOPSHORTCUT">
+        <Shortcut Name="$(AppName)" Target="[INSTALLFOLDER]$(AppExe)"
+                  WorkingDirectory="INSTALLFOLDER" Icon="AppIcon" />
+        <RegistryValue Root="HKMU" Key="Software\WinyZanin\$(AppName)"
+                       Name="DesktopShortcut" Type="integer" Value="1" KeyPath="yes" />
+      </Component>
+    </Feature>
+
+    <!-- Install-directory wizard without the license page. -->
+    <ui:WixUI Id="WixUI_InstallDir" InstallDirectory="INSTALLFOLDER" />
+    <UI>
+      <Publish Dialog="WelcomeDlg" Control="Next" Event="NewDialog" Value="InstallDirDlg" Order="2" />
+      <Publish Dialog="InstallDirDlg" Control="Back" Event="NewDialog" Value="WelcomeDlg" Order="2" />
+    </UI>
+  </Package>
+</Wix>

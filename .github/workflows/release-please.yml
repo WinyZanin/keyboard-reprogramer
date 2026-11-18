@@ -1,0 +1,133 @@
+name: Release Please
+
+# On every push to main:
+# - release-please opens/updates the release PR (version bump in Cargo.toml/Cargo.lock + CHANGELOG.md),
+#   computed from the Conventional Commit messages since the last release.
+# - If the push is the merge of the release PR, release-please tags vX.Y.Z and creates the GitHub
+#   release, the `final` job attaches every artifact (installers, MSI, portable zip, checksums),
+#   and `cleanup-betas` deletes the now obsolete beta pre-releases and their tags.
+# - Otherwise the `beta` job publishes a prerelease vX.Y.Z-beta.N with just the portable exe, where
+#   X.Y.Z is the version proposed by the open release PR and N counts commits since the last release.
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: release-please
+  cancel-in-progress: false
+
+jobs:
+  release-please:
+    runs-on: ubuntu-latest
+    outputs:
+      release_created: ${{ steps.release.outputs.release_created }}
+      tag_name: ${{ steps.release.outputs.tag_name }}
+    steps:
+      # No release-type here: manifest mode reads release-please-config.json.
+      - uses: googleapis/release-please-action@v5
+        id: release
+        with:
+          config-file: release-please-config.json
+          manifest-file: .release-please-manifest.json
+
+  final:
+    needs: release-please
+    if: needs.release-please.outputs.release_created == 'true'
+    uses: ./.github/workflows/package.yml
+    with:
+      tag: ${{ needs.release-please.outputs.tag_name }}
+
+  # After a final release, its betas (and any older ones) are obsolete: delete those
+  # pre-releases and their tags. Runs only once the final artifacts were attached.
+  cleanup-betas:
+    needs: [release-please, final]
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      TAG: ${{ needs.release-please.outputs.tag_name }}
+    steps:
+      - name: Delete betas up to the released version
+        shell: pwsh
+        run: |
+          $released = [version]$env:TAG.TrimStart('v')
+          $releases = gh release list --limit 1000 --json tagName,isPrerelease | ConvertFrom-Json
+          if ($LASTEXITCODE -ne 0) { throw 'gh release list failed' }
+          foreach ($r in $releases) {
+            if (-not $r.isPrerelease -or $r.tagName -notmatch '^v(\d+\.\d+\.\d+)-beta\.\d+$') { continue }
+            if ([version]$Matches[1] -gt $released) { continue }
+            Write-Host "Deleting $($r.tagName)"
+            gh release delete $r.tagName --yes --cleanup-tag
+            if ($LASTEXITCODE -ne 0) { throw "Could not delete $($r.tagName)" }
+          }
+
+  beta:
+    needs: release-please
+    if: needs.release-please.outputs.release_created != 'true'
+    runs-on: windows-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # full history and tags, to count commits since the last release
+
+      - name: Compute beta version
+        id: version
+        shell: pwsh
+        run: |
+          # The release PR is labelled "autorelease: pending"; its Cargo.toml holds the next version.
+          $pr = gh pr list --label 'autorelease: pending' --state open --json headRefName --limit 1 | ConvertFrom-Json
+          if (-not $pr) {
+            Write-Host 'No pending release PR (no releasable commits since the last release): skipping beta.'
+            "skip=true" >> $env:GITHUB_OUTPUT
+            exit 0
+          }
+          git fetch origin $pr[0].headRefName
+          $next = (git show FETCH_HEAD:Cargo.toml | Select-String '^version = "(.+)"').Matches[0].Groups[1].Value
+
+          $last = (Get-Content .release-please-manifest.json | ConvertFrom-Json).'.'
+          git rev-parse -q --verify "refs/tags/v$last" | Out-Null
+          $range = if ($LASTEXITCODE -eq 0) { "v$last..HEAD" } else { 'HEAD' }
+          $count = git rev-list --count $range
+          $version = "$next-beta.$count"
+          Write-Host "Beta version: $version (commits in $range)"
+          "skip=false" >> $env:GITHUB_OUTPUT
+          "version=$version" >> $env:GITHUB_OUTPUT
+          "range=$range" >> $env:GITHUB_OUTPUT
+
+      - uses: dtolnay/rust-toolchain@stable
+        if: steps.version.outputs.skip == 'false'
+        with:
+          toolchain: stable-x86_64-pc-windows-gnu
+
+      - uses: Swatinem/rust-cache@v2
+        if: steps.version.outputs.skip == 'false'
+
+      - name: Build beta exe
+        if: steps.version.outputs.skip == 'false'
+        shell: pwsh
+        run: |
+          $version = '${{ steps.version.outputs.version }}'
+          # Only for this build (never committed): exe properties and Help > About show the beta version.
+          (Get-Content Cargo.toml) -replace '^version = ".*"', "version = `"$version`"" | Set-Content Cargo.toml -Encoding utf8
+          cargo build --release
+          if ($LASTEXITCODE -ne 0) { throw 'cargo build failed' }
+          New-Item -ItemType Directory dist | Out-Null
+          Copy-Item target\release\keyboard-reprogramer.exe "dist\keyboard-reprogramer-$version-x64.exe"
+
+      - name: Publish prerelease
+        if: steps.version.outputs.skip == 'false'
+        shell: pwsh
+        run: |
+          $version = '${{ steps.version.outputs.version }}'
+          $log = git log --no-merges --format='- %s (%h)' '${{ steps.version.outputs.range }}'
+          $header = "Beta build of the next release: portable executable only, not for production use."
+          @($header, '', '## Changes since the last release', '') + $log | Set-Content notes.md -Encoding utf8
+          gh release create "v$version" (Get-ChildItem dist\*.exe).FullName `
+            --prerelease --target '${{ github.sha }}' --title "Keyboard Reprogramer $version" --notes-file notes.md
+          if ($LASTEXITCODE -ne 0) { throw 'gh release create failed' }
