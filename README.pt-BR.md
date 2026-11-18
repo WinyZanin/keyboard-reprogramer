@@ -47,7 +47,7 @@ Uma mesma tecla não pode estar em duas linhas. As teclas são identificadas pel
 
 Volume +/- repete enquanto a tecla está segurada. As outras ações disparam uma vez por pressionamento.
 
-Só uma instância roda por vez: abrir o app de novo traz a janela existente para a frente. **Ajuda → Sobre** mostra a versão instalada.
+Só uma instância roda por vez: abrir o app de novo traz a janela existente para a frente. **Ajuda → Sobre** mostra a versão instalada e a licença.
 
 ## Idioma
 
@@ -115,3 +115,5 @@ Para empacotar localmente, rode `tools/package.ps1` (saída em `dist\`). Ele pre
 - Só funciona com o app aberto, e a configuração (teclas e idioma) ainda não é salva ao fechar.
 - Uma tecla por vez: combinações (ex.: Ctrl+F1) ainda não são suportadas.
 - Em janelas de programas executados **como administrador**, o Windows (UIPI) não deixa o hook bloquear a tecla. Para cobrir esses casos, execute o `.exe` também como administrador.
+
+Melhorias planejadas, problemas conhecidos e observações de segurança ficam no [`ROADMAP.md`](ROADMAP.md) (em inglês).

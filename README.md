@@ -47,7 +47,7 @@ The same key cannot be in two rows. Keys are identified by their physical positi
 
 Volume +/- repeats while the key is held down. The other actions fire once per press.
 
-Only one instance runs at a time: opening the app again brings the existing window to the front. **Help → About** shows the installed version.
+Only one instance runs at a time: opening the app again brings the existing window to the front. **Help → About** shows the installed version and the license.
 
 ## Language
 
@@ -115,3 +115,5 @@ To package locally, run `tools/package.ps1` (output in `dist\`). It needs [Inno 
 - Only works while the app is open, and the configuration (keys and language) is not saved on exit yet.
 - One key at a time: combinations (e.g. Ctrl+F1) are not supported yet.
 - In windows of programs running **as administrator**, Windows (UIPI) doesn't let the hook block the key. To cover those cases, run the `.exe` as administrator too.
+
+Planned improvements, known issues and security notes are tracked in [`ROADMAP.md`](ROADMAP.md) (English).
