@@ -5,6 +5,7 @@ edition = "2021"
 description = "Remaps rarely used keys to media control actions on Windows"
 authors = ["WinyZanin"]
 license = "MIT"
+repository = "https://github.com/WinyZanin/keyboard-reprogramer"
 
 [dependencies]
 windows-sys = { version = "0.59", features = [
@@ -17,6 +18,7 @@ windows-sys = { version = "0.59", features = [
     "Win32_System_SystemInformation",
     "Win32_UI_Controls",
     "Win32_UI_HiDpi",
+    "Win32_UI_Shell",
     "Win32_System_LibraryLoader",
     "Win32_System_Diagnostics_Debug",
     "Win32_System_Threading",

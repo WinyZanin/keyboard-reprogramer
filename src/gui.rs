@@ -17,20 +17,28 @@ use std::mem::{size_of, zeroed};
 use std::ptr::{null, null_mut};
 use std::sync::atomic::{AtomicI32, AtomicPtr, Ordering};
 
-use windows_sys::Win32::Foundation::{COLORREF, GetLastError, HWND, INVALID_HANDLE_VALUE, LPARAM, LRESULT, RECT, WPARAM};
+use windows_sys::core::HRESULT;
+use windows_sys::Win32::Foundation::{
+    COLORREF, GetLastError, BOOL, HWND, INVALID_HANDLE_VALUE, LPARAM, LRESULT, RECT, S_OK, WPARAM,
+};
 use windows_sys::Win32::Graphics::Gdi::{
     CreateFontIndirectW, GetSysColorBrush, InvalidateRect, SetBkMode, SetTextColor, COLOR_BTNFACE,
     COLOR_WINDOW, HBRUSH, HDC, TRANSPARENT,
 };
 use windows_sys::Win32::System::ApplicationInstallationAndServicing::{ActivateActCtx, CreateActCtxW, ACTCTXW};
-use windows_sys::Win32::System::LibraryLoader::GetModuleHandleW;
+use windows_sys::Win32::System::LibraryLoader::{GetModuleHandleW, GetProcAddress, LoadLibraryW};
 use windows_sys::Win32::System::SystemInformation::{GetLocalTime, GetSystemDirectoryW};
 use windows_sys::Win32::System::Diagnostics::Debug::MessageBeep;
-use windows_sys::Win32::UI::Controls::{InitCommonControlsEx, SetScrollInfo, ICC_STANDARD_CLASSES, INITCOMMONCONTROLSEX};
+use windows_sys::Win32::UI::Controls::{
+    InitCommonControlsEx, SetScrollInfo, ICC_STANDARD_CLASSES, INITCOMMONCONTROLSEX, TASKDIALOGCONFIG,
+    TASKDIALOG_NOTIFICATIONS, TDCBF_OK_BUTTON, TDF_ALLOW_DIALOG_CANCELLATION, TDF_ENABLE_HYPERLINKS,
+    TDF_POSITION_RELATIVE_TO_WINDOW, TDF_USE_HICON_MAIN, TDN_HYPERLINK_CLICKED,
+};
 use windows_sys::Win32::UI::HiDpi::{GetDpiForSystem, SetProcessDpiAwarenessContext, DPI_AWARENESS_CONTEXT_SYSTEM_AWARE};
 use windows_sys::Win32::UI::Input::KeyboardAndMouse::{
     EnableWindow, MapVirtualKeyW, SetFocus, MAPVK_VSC_TO_VK_EX, VK_CONTROL, VK_ESCAPE, VK_MENU, VK_SHIFT, VK_SNAPSHOT,
 };
+use windows_sys::Win32::UI::Shell::ShellExecuteW;
 use windows_sys::Win32::UI::WindowsAndMessaging::*;
 
 use crate::actions::ACTIONS;
@@ -542,10 +550,81 @@ unsafe fn retranslate() {
     sync();
 }
 
-/// Shows the app name and version (taken from Cargo.toml at build time).
+type TaskDialogIndirectFn = unsafe extern "system" fn(
+    config: *const TASKDIALOGCONFIG,
+    button: *mut i32,
+    radio: *mut i32,
+    verification: *mut BOOL,
+) -> HRESULT;
+
+/// `TaskDialogIndirect` from Common Controls v6. It can't be imported statically: the exe has
+/// no manifest, so at load time it binds to comctl32 v5, which lacks it (the exe wouldn't even
+/// start). With the activation context from `enable_visual_styles` active, loading
+/// comctl32.dll gets v6.
+unsafe fn task_dialog_indirect() -> Option<TaskDialogIndirectFn> {
+    let module = LoadLibraryW(w("comctl32.dll").as_ptr());
+    if module.is_null() {
+        return None;
+    }
+    let proc_ = GetProcAddress(module, c"TaskDialogIndirect".as_ptr().cast())?;
+    Some(std::mem::transmute::<unsafe extern "system" fn() -> isize, TaskDialogIndirectFn>(proc_))
+}
+
+/// Opens the clicked link (the `href` of an `<a>` in the About text) in the default browser.
+unsafe extern "system" fn about_callback(hwnd: HWND, msg: TASKDIALOG_NOTIFICATIONS, _: WPARAM, lparam: LPARAM, _: isize) -> HRESULT {
+    if msg == TDN_HYPERLINK_CLICKED {
+        ShellExecuteW(hwnd, w("open").as_ptr(), lparam as *const u16, null(), null(), SW_SHOWNORMAL);
+    }
+    S_OK
+}
+
+/// Removes `<a href="...">` / `</a>` tags, keeping the link text (for the MessageBox fallback).
+fn strip_links(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    let mut rest = text;
+    while let Some(start) = rest.find('<') {
+        out.push_str(&rest[..start]);
+        match rest[start..].find('>') {
+            Some(end) => rest = &rest[start + end + 1..],
+            None => {
+                rest = &rest[start..];
+                break;
+            }
+        }
+    }
+    out.push_str(rest);
+    out
+}
+
+/// Shows the app name, version, license and a clickable project link (version and URL come
+/// from Cargo.toml at build time). Falls back to a MessageBox if the TaskDialog isn't available
+/// or fails.
 unsafe fn show_about(owner: HWND) {
-    let text = (t().about_text)(env!("CARGO_PKG_VERSION"));
-    MessageBoxW(owner, w(&text).as_ptr(), w(t().about_title).as_ptr(), MB_OK | MB_ICONINFORMATION);
+    let text = (t().about_text)(env!("CARGO_PKG_VERSION"), env!("CARGO_PKG_REPOSITORY"));
+    let title = w(t().about_title);
+    let fallback = || {
+        MessageBoxW(owner, w(&strip_links(&text)).as_ptr(), title.as_ptr(), MB_OK | MB_ICONINFORMATION);
+    };
+    let Some(task_dialog) = task_dialog_indirect() else {
+        fallback();
+        return;
+    };
+    let heading = w("Keyboard Reprogramer");
+    let content = w(&text);
+    let mut config: TASKDIALOGCONFIG = zeroed();
+    config.cbSize = size_of::<TASKDIALOGCONFIG>() as u32;
+    config.hwndParent = owner;
+    config.dwFlags =
+        TDF_ENABLE_HYPERLINKS | TDF_USE_HICON_MAIN | TDF_ALLOW_DIALOG_CANCELLATION | TDF_POSITION_RELATIVE_TO_WINDOW;
+    config.dwCommonButtons = TDCBF_OK_BUTTON;
+    config.pszWindowTitle = title.as_ptr();
+    config.Anonymous1.hMainIcon = app_icon(SM_CXICON);
+    config.pszMainInstruction = heading.as_ptr();
+    config.pszContent = content.as_ptr();
+    config.pfCallback = Some(about_callback);
+    if task_dialog(&config, null_mut(), null_mut(), null_mut()) < 0 {
+        fallback();
+    }
 }
 
 unsafe fn set_language(lang: Lang) {
