@@ -54,10 +54,16 @@ jobs:
       - name: Attach artifacts to the release
         shell: pwsh
         run: |
+          $title = "Keyboard Reprogramer $($env:TAG.TrimStart('v'))"
           gh release view $env:TAG *> $null
           if ($LASTEXITCODE -ne 0) {
-            gh release create $env:TAG --verify-tag --title "Keyboard Reprogramer $($env:TAG.TrimStart('v'))" --generate-notes
+            gh release create $env:TAG --verify-tag --title $title --generate-notes
             if ($LASTEXITCODE -ne 0) { throw 'gh release create failed' }
+          } else {
+            # Releases created by release-please are named after the tag (vX.Y.Z); use the same
+            # name as manual releases and betas.
+            gh release edit $env:TAG --title $title
+            if ($LASTEXITCODE -ne 0) { throw 'gh release edit failed' }
           }
           gh release upload $env:TAG (Get-ChildItem dist -File).FullName --clobber
           if ($LASTEXITCODE -ne 0) { throw 'gh release upload failed' }
