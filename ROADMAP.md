@@ -41,10 +41,12 @@ Known issues, observations and planned improvements. Items move to
   OV/EV certificate) and a signing step in `.github/workflows/package.yml`.
 - [ ] **Translate the MSI wizard.** The MSI UI is English only; the Inno Setup installer already
   has English and Portuguese. WiX supports localization files (`.wxl`) per language.
-- [ ] **CI doesn't run on the release PR.** Pull requests created by release-please with the
-  default `GITHUB_TOKEN` don't trigger workflows, so `build` and `pr-title` never run on them (and
-  can't be required checks). Fix: give release-please a GitHub App token or a fine-grained PAT,
-  and make sure the tag it creates doesn't also trigger `package.yml` a second time.
+- [ ] **CI on the release PR needs manual approval.** The release PR is opened by
+  `github-actions[bot]`; GitHub creates its CI run but holds it until a maintainer clicks
+  *Approve workflows to run*. Without approval, the post-merge CI run on `main` is the only check
+  (and `build` / `pr-title` can't be required checks). Option: give release-please a GitHub App
+  token or a fine-grained PAT, and make sure the tag it creates doesn't also trigger
+  `package.yml` a second time.
 - [ ] **Revisit WiX 6.** WiX is pinned to 5.0.2 in `tools/package.ps1` and the workflows. WiX 6
   requires accepting the Open Source Maintenance Fee EULA; check the terms before upgrading.
 
