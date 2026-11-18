@@ -24,6 +24,10 @@ pub const ACTIONS: &[MediaAction] = &[
     MediaAction { name: "Mudo", vk: VK_VOLUME_MUTE, repeat: false },
 ];
 
+/// Marca os eventos enviados pelo próprio app (dwExtraInfo), para o hook ignorá-los
+/// sem ignorar outras entradas injetadas (teclado virtual, automação etc.).
+pub const SELF_INJECTED_TAG: usize = 0x4B52_4D50; // "KRMP"
+
 fn key_input(vk: u16, up: bool) -> INPUT {
     let mut flags = KEYEVENTF_EXTENDEDKEY;
     if up {
@@ -32,7 +36,7 @@ fn key_input(vk: u16, up: bool) -> INPUT {
     INPUT {
         r#type: INPUT_KEYBOARD,
         Anonymous: INPUT_0 {
-            ki: KEYBDINPUT { wVk: vk, wScan: 0, dwFlags: flags, time: 0, dwExtraInfo: 0 },
+            ki: KEYBDINPUT { wVk: vk, wScan: 0, dwFlags: flags, time: 0, dwExtraInfo: SELF_INJECTED_TAG },
         },
     }
 }
