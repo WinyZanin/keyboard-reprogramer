@@ -90,7 +90,7 @@ Saída: `target\release\keyboard-reprogramer.exe`, um executável único e port�
 
 O projeto segue o [Versionamento Semântico](https://semver.org/lang/pt-BR/) e os [Conventional Commits](https://www.conventionalcommits.org/pt-br/). A `version` do `Cargo.toml` é a única fonte da verdade: o `build.rs` grava ela nas propriedades do exe, **Ajuda → Sobre** mostra, e o script de empacotamento repassa aos dois instaladores. As releases são automatizadas pelo [release-please](https://github.com/googleapis/release-please):
 
-1. **Toda mudança passa por uma branch e um pull request** para a `main`. Os PRs são mesclados com squash, e o **título do PR** precisa ser um Conventional Commit (verificado pelo CI), porque vira a mensagem de commit que decide a próxima versão:
+1. **Toda mudança passa por uma branch e um pull request** para a `main`. Os PRs são mesclados com squash, e o **título do PR** precisa ser um Conventional Commit (verificado pelo CI; se a branch tiver o nome `<tipo>/<descrição>`, ex.: `feat/save-config`, o CI define o título `feat: save config` sozinho), porque vira a mensagem de commit que decide a próxima versão:
    - `fix: ...` → patch (0.1.0 → 0.1.1)
    - `feat: ...` → minor (0.1.0 → 0.2.0)
    - `feat!: ...` ou um rodapé `BREAKING CHANGE:` → major (enquanto abaixo de 1.0, sobe o minor)
