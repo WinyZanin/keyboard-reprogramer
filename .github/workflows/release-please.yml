@@ -1,6 +1,8 @@
-name: Release Please
+name: Main
 
-# On every push to main:
+# On every push to main (a single run per merge):
+# - `ci` builds and runs clippy (ci.yml). Every other job waits for it, so a broken build
+#   never produces a beta or a release.
 # - release-please opens/updates the release PR (version bump in Cargo.toml/Cargo.lock + CHANGELOG.md),
 #   computed from the Conventional Commit messages since the last release.
 # - If the push is the merge of the release PR, release-please tags vX.Y.Z and creates the GitHub
@@ -21,7 +23,11 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  ci:
+    uses: ./.github/workflows/ci.yml
+
   release-please:
+    needs: ci
     runs-on: ubuntu-latest
     outputs:
       release_created: ${{ steps.release.outputs.release_created }}

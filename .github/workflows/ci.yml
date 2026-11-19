@@ -1,10 +1,12 @@
 name: CI
 
+# Runs on pull requests, and as the first job of release-please.yml on every push to main
+# (workflow_call), so a merge produces a single workflow run and nothing is released unless
+# the build and clippy pass. There is no push trigger here on purpose.
 on:
-  push:
-    branches: [main]
   pull_request:
     types: [opened, edited, synchronize, reopened]
+  workflow_call:
 
 jobs:
   build:
