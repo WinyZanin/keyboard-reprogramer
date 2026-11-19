@@ -5,6 +5,18 @@ All notable changes to this project are documented in this file. It is generated
 [Conventional Commits](https://www.conventionalcommits.org/) merged into `main`; don't edit
 new entries by hand. The project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.0](https://github.com/WinyZanin/keyboard-reprogramer/compare/v0.2.0...v0.3.0) (2026-11-19)
+
+
+### Features
+
+* save config ([#7](https://github.com/WinyZanin/keyboard-reprogramer/issues/7)) ([8182f63](https://github.com/WinyZanin/keyboard-reprogramer/commit/8182f63351a53db25fb134a2f7708995d20b254f))
+
+
+### Bug Fixes
+
+* release keys captured while the hook was paused ([#6](https://github.com/WinyZanin/keyboard-reprogramer/issues/6)) ([bd988d7](https://github.com/WinyZanin/keyboard-reprogramer/commit/bd988d774840edb180bc41cc241339e3343e2cc0))
+
 ## [0.2.0](https://github.com/WinyZanin/keyboard-reprogramer/compare/v0.1.0...v0.2.0) (2026-11-18)
 
 
