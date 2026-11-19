@@ -43,7 +43,7 @@ Known issues, observations and planned improvements. Items move to
   has English and Portuguese. WiX supports localization files (`.wxl`) per language.
 - [ ] **CI on the release PR needs manual approval.** The release PR is opened by
   `github-actions[bot]`; GitHub creates its CI run but holds it until a maintainer clicks
-  *Approve workflows to run*. Without approval, the post-merge CI run on `main` is the only check
+  *Approve workflows to run*. Without approval, the CI job of the post-merge *Main* run is the only check
   (and `build` / `pr-title` can't be required checks). Option: give release-please a GitHub App
   token or a fine-grained PAT, and make sure the tag it creates doesn't also trigger
   `package.yml` a second time.
