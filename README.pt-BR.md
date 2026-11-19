@@ -49,15 +49,25 @@ Volume +/- repete enquanto a tecla está segurada. As outras ações disparam um
 
 Só uma instância roda por vez: abrir o app de novo traz a janela existente para a frente. **Ajuda → Sobre** mostra a versão instalada e a licença.
 
+## Configuração
+
+As linhas (tecla, ação, ativada), o estado do **Desativar tudo** e o idioma são salvos automaticamente a cada alteração e restaurados na próxima vez que o app abre. Ficam guardados por usuário em:
+
+```
+%APPDATA%\Keyboard Reprogramer\config.toml
+```
+
+É um arquivo [TOML](https://toml.io) comum. Para editar à mão, feche o app antes; para zerar tudo, apague o arquivo. Se o arquivo estiver inválido, o app renomeia para `config.toml.bak`, começa com a configuração vazia e avisa no histórico. Linhas cuja tecla nunca foi capturada não são salvas. Desinstalar mantém o arquivo, então uma reinstalação usa a mesma configuração.
+
 ## Idioma
 
-O menu **Idioma**, abaixo da barra de título, troca o idioma da interface na hora. Disponíveis: **English** e **Português (Brasil)**. Ao abrir, o app segue o idioma de exibição do Windows (português → Português, qualquer outro → English). A escolha ainda não é salva.
+O menu **Idioma**, abaixo da barra de título, troca o idioma da interface na hora. Disponíveis: **English** e **Português (Brasil)**. Ao abrir, o app segue o idioma de exibição do Windows (português → Português, qualquer outro → English). Depois que você escolhe um idioma, ele fica salvo e o app passa a abrir nele.
 
 ### Adicionar um idioma
 
 Todo o texto da interface fica em [`src/i18n.rs`](src/i18n.rs), em uma tabela `Strings` por idioma:
 
-1. Adicione uma variante em `Lang` e em `Lang::ALL`, e o nome dela (no próprio idioma) em `native_name()`.
+1. Adicione uma variante em `Lang` e em `Lang::ALL`, o nome dela (no próprio idioma) em `native_name()` e o código (BCP 47, ex.: `es`) em `code()`.
 2. Crie uma nova tabela `static` `Strings` e retorne-a em `Lang::strings()`.
 3. Opcionalmente, mapeie o idioma do Windows em `detect()`.
 
@@ -112,7 +122,7 @@ Para empacotar localmente, rode `tools/package.ps1` (saída em `dist\`). Ele pre
 
 ## Limitações
 
-- Só funciona com o app aberto, e a configuração (teclas e idioma) ainda não é salva ao fechar.
+- Só funciona com o app aberto.
 - Uma tecla por vez: combinações (ex.: Ctrl+F1) ainda não são suportadas.
 - Em janelas de programas executados **como administrador**, o Windows (UIPI) não deixa o hook bloquear a tecla. Para cobrir esses casos, execute o `.exe` também como administrador.
 
