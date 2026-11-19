@@ -59,7 +59,8 @@ pub struct Rule {
 
 struct RuleState {
     rule: Rule,
-    /// The key is held down (avoids repeating actions that must not repeat).
+    /// The hook dropped this key's key-down and the key is still held. Avoids repeating
+    /// actions that must not repeat, and tells whether the key-up must be dropped too.
     pressed: bool,
 }
 
@@ -99,11 +100,14 @@ pub fn uninstall() {
 /// Replaces the active rules (empty list = nothing is remapped).
 pub fn set_rules(rules: &[Rule]) {
     let mut state = RULES.lock().unwrap_or_else(|e| e.into_inner());
-    *state = rules
+    // Keeps `pressed` for keys held right now, so their key-up is still dropped.
+    let held = |key: &Key| state.iter().any(|s| s.pressed && s.rule.key.same_physical(key));
+    let new: Vec<RuleState> = rules
         .iter()
         .filter(|r| r.action < ACTIONS.len())
-        .map(|&rule| RuleState { rule, pressed: false })
+        .map(|&rule| RuleState { rule, pressed: held(&rule.key) })
         .collect();
+    *state = new;
 }
 
 /// Pauses/resumes remapping (without changing the rules).
@@ -132,6 +136,12 @@ unsafe fn handle(kb: &KBDLLHOOKSTRUCT, msg: u32) -> Option<LRESULT> {
     let up = matches!(msg, WM_KEYUP | WM_SYSKEYUP);
     let notify = NOTIFY_HWND.load(Ordering::Relaxed);
     if PAUSED.load(Ordering::Relaxed) {
+        // The key-up goes through, so the key is no longer held for the rule either.
+        if up {
+            if let Ok(mut rules) = RULES.try_lock() {
+                rules.iter_mut().filter(|s| s.rule.key.same_physical(&key)).for_each(|s| s.pressed = false);
+            }
+        }
         return None;
     }
 
@@ -149,8 +159,11 @@ unsafe fn handle(kb: &KBDLLHOOKSTRUCT, msg: u32) -> Option<LRESULT> {
             // PostMessage doesn't block: the callback must return quickly.
             PostMessageW(notify, WM_APP_TRIGGERED, state.rule.uid as WPARAM, 0);
         }
-    } else if up {
-        state.pressed = false;
+    } else if up && !std::mem::replace(&mut state.pressed, false) {
+        // The key-down went through (the rule didn't exist yet, e.g. the key was just
+        // captured): the key-up must go through too, otherwise Windows keeps the key "held"
+        // (a stuck Ctrl, or Insert turning every Shift into Shift+Insert = paste).
+        return None;
     }
     // Drops the original event: the key doesn't perform its normal function.
     Some(1)
