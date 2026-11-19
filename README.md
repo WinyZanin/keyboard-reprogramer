@@ -49,15 +49,25 @@ Volume +/- repeats while the key is held down. The other actions fire once per p
 
 Only one instance runs at a time: opening the app again brings the existing window to the front. **Help → About** shows the installed version and the license.
 
+## Configuration
+
+The rows (key, action, enabled), the **Disable all** state and the language are saved automatically after every change and restored the next time the app opens. They are stored per user in:
+
+```
+%APPDATA%\Keyboard Reprogramer\config.toml
+```
+
+It is a plain [TOML](https://toml.io) file. To edit it by hand, close the app first; to reset everything, delete it. If the file is invalid, the app renames it to `config.toml.bak`, starts with an empty configuration and says so in the history. Rows whose key was never captured are not saved. Uninstalling keeps the file, so a reinstall picks up the same configuration.
+
 ## Language
 
-The **Language** menu, below the title bar, switches the interface language instantly. Available: **English** and **Português (Brasil)**. On startup the app follows the Windows display language (Portuguese → Português, anything else → English). The choice is not saved yet.
+The **Language** menu, below the title bar, switches the interface language instantly. Available: **English** and **Português (Brasil)**. On startup the app follows the Windows display language (Portuguese → Português, anything else → English). Once you pick a language it is saved, and the app opens in it from then on.
 
 ### Adding a language
 
 All interface text lives in [`src/i18n.rs`](src/i18n.rs), as one `Strings` table per language:
 
-1. Add a variant to `Lang` and to `Lang::ALL`, and its name (in the language itself) to `native_name()`.
+1. Add a variant to `Lang` and to `Lang::ALL`, its name (in the language itself) to `native_name()` and its code (BCP 47, e.g. `es`) to `code()`.
 2. Create a new `static` `Strings` table and return it from `Lang::strings()`.
 3. Optionally, map the Windows language in `detect()`.
 
@@ -112,7 +122,7 @@ To package locally, run `tools/package.ps1` (output in `dist\`). It needs [Inno 
 
 ## Limitations
 
-- Only works while the app is open, and the configuration (keys and language) is not saved on exit yet.
+- Only works while the app is open.
 - One key at a time: combinations (e.g. Ctrl+F1) are not supported yet.
 - In windows of programs running **as administrator**, Windows (UIPI) doesn't let the hook block the key. To cover those cases, run the `.exe` as administrator too.
 

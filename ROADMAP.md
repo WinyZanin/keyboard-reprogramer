@@ -22,8 +22,6 @@ Known issues, observations and planned improvements. Items move to
 
 ## Features
 
-- [ ] **Save the configuration** (keys, actions, enabled state and language) between sessions.
-  Today everything is lost when the app closes.
 - [ ] **Key combinations** (e.g. Ctrl+F1). Today only single keys can be remapped.
 - [ ] **Start with Windows** (optional), probably together with running minimized to the
   notification area (tray icon).

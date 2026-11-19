@@ -4,8 +4,8 @@
 //! Tables are plain Rust structs, so a missing or mistyped translation is a compile error.
 //! Parameterized messages are `fn` fields, which keeps placeholders type-checked.
 //!
-//! To add a language: add a [`Lang`] variant (and to [`Lang::ALL`]), give it a native name
-//! and a `Strings` table, and map it in [`Lang::strings`]. Optionally detect it in [`detect`].
+//! To add a language: add a [`Lang`] variant (and to [`Lang::ALL`]), give it a native name,
+//! a code and a `Strings` table, and map it in [`Lang::strings`]. Optionally detect it in [`detect`].
 
 use std::sync::atomic::{AtomicU8, Ordering};
 
@@ -30,6 +30,18 @@ impl Lang {
             Lang::En => "English",
             Lang::PtBr => "Português (Brasil)",
         }
+    }
+
+    /// Stable code used in the configuration file (BCP 47). Never change an existing one.
+    pub fn code(self) -> &'static str {
+        match self {
+            Lang::En => "en",
+            Lang::PtBr => "pt-BR",
+        }
+    }
+
+    pub fn from_code(code: &str) -> Option<Lang> {
+        Lang::ALL.into_iter().find(|l| l.code().eq_ignore_ascii_case(code))
     }
 
     pub fn strings(self) -> &'static Strings {
@@ -106,6 +118,12 @@ pub struct Strings {
     pub log_master_off: &'static str,
     pub log_triggered: fn(row: usize, key: &str, action: &str) -> String,
     pub log_language: fn(name: &str) -> String,
+    pub log_config_loaded: fn(rules: usize) -> String,
+    pub log_config_rules_skipped: fn(count: usize) -> String,
+    pub log_config_invalid: fn(detail: &str) -> String,
+    pub log_config_read_error: fn(err: &str) -> String,
+    pub log_config_newer: fn(version: u32) -> String,
+    pub log_config_save_error: fn(err: &str) -> String,
 
     /// Same order as `actions::ACTIONS`.
     pub action_names: [&'static str; ACTION_COUNT],
@@ -174,6 +192,16 @@ static EN: Strings = Strings {
     log_master_off: "Remapping disabled: all keys are back to normal",
     log_triggered: |row, key, action| format!("[row {row}] {key} → {action}"),
     log_language: |name| format!("Language: {name}"),
+    log_config_loaded: |rules| format!("Configuration loaded: {rules} rule(s)"),
+    log_config_rules_skipped: |count| format!("{count} saved rule(s) skipped (unknown action or duplicate key)"),
+    log_config_invalid: |detail| {
+        format!("Invalid configuration file, renamed to config.toml.bak; starting with defaults ({detail})")
+    },
+    log_config_read_error: |err| format!("Could not read the configuration ({err}); changes will not be saved"),
+    log_config_newer: |version| {
+        format!("The configuration was saved by a newer version (format {version}); changes will not be saved")
+    },
+    log_config_save_error: |err| format!("Could not save the configuration: {err}"),
 
     action_names: ["Play/Pause", "Next track", "Previous track", "Stop", "Volume +", "Volume -", "Mute"],
 
@@ -240,6 +268,16 @@ static PT_BR: Strings = Strings {
     log_master_off: "Remapeamento desativado: todas as teclas voltaram ao normal",
     log_triggered: |row, key, action| format!("[linha {row}] {key} → {action}"),
     log_language: |name| format!("Idioma: {name}"),
+    log_config_loaded: |rules| format!("Configuração carregada: {rules} regra(s)"),
+    log_config_rules_skipped: |count| format!("{count} regra(s) salva(s) ignorada(s) (ação desconhecida ou tecla repetida)"),
+    log_config_invalid: |detail| {
+        format!("Arquivo de configuração inválido, renomeado para config.toml.bak; usando o padrão ({detail})")
+    },
+    log_config_read_error: |err| format!("Não foi possível ler a configuração ({err}); as alterações não serão salvas"),
+    log_config_newer: |version| {
+        format!("A configuração foi salva por uma versão mais nova (formato {version}); as alterações não serão salvas")
+    },
+    log_config_save_error: |err| format!("Não foi possível salvar a configuração: {err}"),
 
     action_names: ["Play/Pause", "Próxima faixa", "Faixa anterior", "Stop", "Volume +", "Volume -", "Mudo"],
 

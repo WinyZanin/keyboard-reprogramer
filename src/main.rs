@@ -2,6 +2,7 @@
 #![windows_subsystem = "windows"]
 
 mod actions;
+mod config;
 mod gui;
 mod hook;
 mod i18n;
@@ -45,8 +46,13 @@ fn main() {
     if !claim_single_instance() {
         return;
     }
-    i18n::set(i18n::detect());
-    if let Err(e) = gui::run() {
+    let loaded = config::load();
+    let saved_lang = match &loaded {
+        Ok(Some(c)) => c.language.as_deref().and_then(i18n::Lang::from_code),
+        _ => None,
+    };
+    i18n::set(saved_lang.unwrap_or_else(i18n::detect));
+    if let Err(e) = gui::run(loaded) {
         // There is no console, so the error goes to a message box.
         unsafe {
             MessageBoxW(

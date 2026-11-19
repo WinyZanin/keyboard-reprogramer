@@ -9,6 +9,8 @@ use windows_sys::Win32::UI::Input::KeyboardAndMouse::{
 /// Media action that replaces the key's original function.
 /// Display names live in `i18n::Strings::action_names`, in the same order.
 pub struct MediaAction {
+    /// Stable identifier used in the configuration file. Never change an existing one.
+    pub id: &'static str,
     pub vk: u16,
     /// Repeats while the key is held down (useful for volume).
     pub repeat: bool,
@@ -17,14 +19,19 @@ pub struct MediaAction {
 pub const ACTION_COUNT: usize = 7;
 
 pub const ACTIONS: [MediaAction; ACTION_COUNT] = [
-    MediaAction { vk: VK_MEDIA_PLAY_PAUSE, repeat: false },
-    MediaAction { vk: VK_MEDIA_NEXT_TRACK, repeat: false },
-    MediaAction { vk: VK_MEDIA_PREV_TRACK, repeat: false },
-    MediaAction { vk: VK_MEDIA_STOP, repeat: false },
-    MediaAction { vk: VK_VOLUME_UP, repeat: true },
-    MediaAction { vk: VK_VOLUME_DOWN, repeat: true },
-    MediaAction { vk: VK_VOLUME_MUTE, repeat: false },
+    MediaAction { id: "play_pause", vk: VK_MEDIA_PLAY_PAUSE, repeat: false },
+    MediaAction { id: "next_track", vk: VK_MEDIA_NEXT_TRACK, repeat: false },
+    MediaAction { id: "prev_track", vk: VK_MEDIA_PREV_TRACK, repeat: false },
+    MediaAction { id: "stop", vk: VK_MEDIA_STOP, repeat: false },
+    MediaAction { id: "volume_up", vk: VK_VOLUME_UP, repeat: true },
+    MediaAction { id: "volume_down", vk: VK_VOLUME_DOWN, repeat: true },
+    MediaAction { id: "mute", vk: VK_VOLUME_MUTE, repeat: false },
 ];
+
+/// Index in `ACTIONS` of the action with the given `id`.
+pub fn index_of(id: &str) -> Option<usize> {
+    ACTIONS.iter().position(|a| a.id == id)
+}
 
 /// Tags events sent by the app itself (dwExtraInfo) so the hook ignores them
 /// without ignoring other injected input (on-screen keyboard, automation, etc.).

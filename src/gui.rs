@@ -10,6 +10,9 @@
 //!
 //! All user-visible text comes from `i18n::t()`; `retranslate` re-applies it when the
 //! language changes.
+//!
+//! The rows, the master switch and the language are restored from `config` on startup and
+//! saved after every change (see `sync`).
 
 use std::cell::{Cell, RefCell};
 use std::ffi::c_void;
@@ -41,7 +44,8 @@ use windows_sys::Win32::UI::Input::KeyboardAndMouse::{
 use windows_sys::Win32::UI::Shell::ShellExecuteW;
 use windows_sys::Win32::UI::WindowsAndMessaging::*;
 
-use crate::actions::ACTIONS;
+use crate::actions::{self, ACTIONS};
+use crate::config::{self, Config, KeyConfig, LoadError, RuleConfig};
 use crate::hook::{self, Key, Rule, WM_APP_TRIGGERED};
 use crate::i18n::{self, t, Lang};
 use crate::keys;
@@ -98,6 +102,9 @@ struct App {
     capturing: Option<u32>,
     next_uid: u32,
     scroll: i32,
+    /// Language picked in the menu (now or in a previous session). None = follow Windows,
+    /// so the language isn't saved until the user picks one.
+    language: Option<Lang>,
 }
 
 thread_local! {
@@ -202,8 +209,35 @@ fn key_label(key: Option<Key>) -> String {
 // ---------------------------------------------------------------------------------------
 // State -> hook and status
 
-/// Sends the active rules to the hook and updates the status and the master button.
+/// Applies a state change: updates the hook and the status, then saves the configuration.
 unsafe fn sync() {
+    refresh();
+    persist();
+}
+
+/// Saves the rows that have a key, the master switch and the language picked in the menu.
+unsafe fn persist() {
+    let Some(config) = with(|a| Config {
+        language: a.language.map(|l| l.code().to_string()),
+        enabled: a.master,
+        rules: a
+            .rows
+            .iter()
+            .filter_map(|r| {
+                Some(RuleConfig { action: ACTIONS[r.action].id.to_string(), enabled: r.enabled, key: KeyConfig::from(r.key?) })
+            })
+            .collect(),
+        ..Config::default()
+    }) else {
+        return;
+    };
+    if let Err(e) = config::save(&config) {
+        log(&(t().log_config_save_error)(&e));
+    }
+}
+
+/// Sends the active rules to the hook and updates the status and the master button.
+unsafe fn refresh() {
     let Some((rules, master, main)) = with(|a| {
         let rules: Vec<Rule> = a
             .rows
@@ -327,13 +361,22 @@ unsafe fn on_vscroll(panel: HWND, request: u32) {
 // ---------------------------------------------------------------------------------------
 // User actions
 
+/// "+ Add": creates an empty row and starts capturing its key.
 unsafe fn add_row() {
-    let Some((panel, uid)) = with(|a| {
+    let Some(uid) = create_row(None, 0, true) else { return };
+    scroll_to(i32::MAX); // shows the new row
+    if let Some(Some(hotkey)) = with(|a| a.rows.iter().find(|r| r.uid == uid).map(|r| r.ctl[PART_HOTKEY])) {
+        SetFocus(hotkey);
+    }
+    start_capture(uid);
+}
+
+/// Creates a row's controls and adds it to the state. Doesn't relayout or sync.
+unsafe fn create_row(key: Option<Key>, action: usize, enabled: bool) -> Option<u32> {
+    let (panel, uid) = with(|a| {
         a.next_uid += 1;
         (a.panel, a.next_uid)
-    }) else {
-        return;
-    };
+    })?;
     let id = |part: usize| ROW_ID_BASE + uid as i32 * 4 + part as i32;
     let r = (0, 0, 10, 10); // position is set in relayout
     let s = t();
@@ -344,12 +387,44 @@ unsafe fn add_row() {
     let delete = child(panel, "BUTTON", s.delete, WS_TABSTOP, id(PART_DELETE), r);
 
     with(|a| {
-        a.rows.push(Row { uid, key: None, action: 0, enabled: true, ctl: [hotkey, combo, toggle, delete] });
+        a.rows.push(Row { uid, key, action, enabled, ctl: [hotkey, combo, toggle, delete] });
     });
-    scroll_to(i32::MAX); // shows the new row
     update_row(uid);
-    SetFocus(hotkey);
-    start_capture(uid);
+    Some(uid)
+}
+
+/// Recreates the saved rows and logs the result of loading the configuration.
+unsafe fn restore(loaded: Result<Option<Config>, LoadError>) {
+    let s = t();
+    let config = match loaded {
+        Ok(Some(config)) => config,
+        Ok(None) => return,
+        Err(LoadError::Invalid(detail)) => return log(&(s.log_config_invalid)(&detail)),
+        Err(LoadError::Read(err)) => return log(&(s.log_config_read_error)(&err)),
+    };
+    with(|a| {
+        a.master = config.enabled;
+        a.language = config.language.as_deref().and_then(Lang::from_code);
+    });
+    let mut restored: Vec<Key> = Vec::new();
+    for rule in &config.rules {
+        let key = Key::from(rule.key);
+        let Some(action) = actions::index_of(&rule.action) else { continue };
+        if restored.iter().any(|k| k.same_physical(&key)) {
+            continue;
+        }
+        if create_row(Some(key), action, rule.enabled).is_some() {
+            restored.push(key);
+        }
+    }
+    log(&(s.log_config_loaded)(restored.len()));
+    let skipped = config.rules.len() - restored.len();
+    if skipped > 0 {
+        log(&(s.log_config_rules_skipped)(skipped));
+    }
+    if config.version > config::VERSION {
+        log(&(s.log_config_newer)(config.version));
+    }
 }
 
 unsafe fn start_capture(uid: u32) {
@@ -629,9 +704,14 @@ unsafe fn show_about(owner: HWND) {
 
 unsafe fn set_language(lang: Lang) {
     if lang == i18n::current() {
+        // Picking the language already shown still counts as a choice.
+        with(|a| a.language = Some(lang));
+        persist();
         return;
     }
     i18n::set(lang);
+    with(|a| a.language = Some(lang));
+    // retranslate ends with sync, which saves the choice.
     retranslate();
     log(&(t().log_language)(lang.native_name()));
 }
@@ -779,7 +859,7 @@ unsafe fn register_class(name: &[u16], proc_: WNDPROC, background: i32, icon: bo
     Ok(())
 }
 
-pub fn run() -> Result<(), String> {
+pub fn run(loaded: Result<Option<Config>, LoadError>) -> Result<(), String> {
     unsafe {
         SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_SYSTEM_AWARE);
         enable_visual_styles();
@@ -850,11 +930,14 @@ pub fn run() -> Result<(), String> {
                 capturing: None,
                 next_uid: 0,
                 scroll: 0,
+                language: None,
             })
         });
         hook::install(main)?;
+        restore(loaded);
         relayout();
-        sync();
+        // refresh, not sync: nothing changed yet, so there is nothing to save.
+        refresh();
         ShowWindow(main, SW_SHOW);
 
         let mut msg: MSG = zeroed();
