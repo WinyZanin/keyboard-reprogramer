@@ -2,7 +2,7 @@
 //! no frameworks.
 //!
 //! Layout:
-//! - Menu bar: Language, Help (About).
+//! - Menu bar: Language, Options (start with Windows, tray behavior, Exit), Help (About).
 //! - Top: master button (disables/re-enables everything) and status.
 //! - Scrollable panel with one row per key: [key] [action ▾] [Disable] [Delete],
 //!   followed by the "+ Add" button, which creates a new row and starts capturing its key.
@@ -11,8 +11,12 @@
 //! All user-visible text comes from `i18n::t()`; `retranslate` re-applies it when the
 //! language changes.
 //!
-//! The rows, the master switch and the language are restored from `config` on startup and
-//! saved after every change (see `sync`).
+//! The rows, the master switch, the language and the options are restored from `config` on
+//! startup and saved after every change (see `sync`).
+//!
+//! The app also lives in the notification area (`tray`): its icon menu shows the window,
+//! toggles all keys, holds the same Options and exits. Depending on the options, closing or
+//! minimizing the window only hides it there.
 
 use std::cell::{Cell, RefCell};
 use std::ffi::c_void;
@@ -41,17 +45,21 @@ use windows_sys::Win32::UI::HiDpi::{GetDpiForSystem, SetProcessDpiAwarenessConte
 use windows_sys::Win32::UI::Input::KeyboardAndMouse::{
     EnableWindow, MapVirtualKeyW, SetFocus, MAPVK_VSC_TO_VK_EX, VK_CONTROL, VK_ESCAPE, VK_MENU, VK_SHIFT, VK_SNAPSHOT,
 };
-use windows_sys::Win32::UI::Shell::ShellExecuteW;
+use windows_sys::Win32::UI::Shell::{ShellExecuteW, NIN_SELECT};
 use windows_sys::Win32::UI::WindowsAndMessaging::*;
 
 use crate::actions::{self, ACTIONS};
-use crate::config::{self, Config, KeyConfig, LoadError, RuleConfig};
+use crate::autostart;
+use crate::config::{self, Config, KeyConfig, LoadError, Options, RuleConfig};
 use crate::hook::{self, Key, Rule, WM_APP_TRIGGERED};
 use crate::i18n::{self, t, Lang};
 use crate::keys;
+use crate::tray::{self, NIN_KEYSELECT, WM_APP_TRAY};
 
 /// Main window class; also used by `main` to find the running instance.
 pub const MAIN_CLASS: &str = "KeyboardReprogramerWindow";
+/// Sent by a second instance: show the window (it may be hidden in the notification area).
+pub const WM_APP_SHOW: u32 = WM_APP + 2;
 
 const ID_MASTER: i32 = 10;
 const ID_STATUS: i32 = 11;
@@ -59,6 +67,20 @@ const ID_PANEL: i32 = 12;
 const ID_LOG: i32 = 13;
 const ID_HISTORY_LABEL: i32 = 14;
 const ID_ADD: i32 = 20;
+/// Options > Exit and the tray menu's Exit.
+const ID_EXIT: i32 = 30;
+/// Tray menu: show the window.
+const ID_SHOW: i32 = 31;
+/// Tray menu: Disable all / Enable all.
+const ID_TRAY_MASTER: i32 = 32;
+/// Options menu items (menu bar and tray menu).
+const ID_OPT_AUTOSTART: i32 = 40;
+const ID_OPT_START_MINIMIZED: i32 = 41;
+const ID_OPT_START_ENABLED: i32 = 42;
+const ID_OPT_CLOSE_TO_TRAY: i32 = 43;
+const ID_OPT_MINIMIZE_TO_TRAY: i32 = 44;
+/// Position of the Options menu in the menu bar.
+const OPTIONS_MENU_POS: i32 = 1;
 /// Help > About menu item.
 const ID_ABOUT: i32 = 90;
 /// Language menu items: ID = ID_LANG_BASE + index in `Lang::ALL`.
@@ -105,6 +127,7 @@ struct App {
     /// Language picked in the menu (now or in a previous session). None = follow Windows,
     /// so the language isn't saved until the user picks one.
     language: Option<Lang>,
+    options: Options,
 }
 
 thread_local! {
@@ -220,6 +243,7 @@ unsafe fn persist() {
     let Some(config) = with(|a| Config {
         language: a.language.map(|l| l.code().to_string()),
         enabled: a.master,
+        options: a.options,
         rules: a
             .rows
             .iter()
@@ -259,6 +283,7 @@ unsafe fn refresh() {
     } else {
         (s.status_active)(rules.len())
     };
+    tray::update(main, &format!("Keyboard Reprogramer\n{status}"), master && !rules.is_empty());
     let status_ctl = GetDlgItem(main, ID_STATUS);
     set_text(status_ctl, &status);
     InvalidateRect(status_ctl, null(), 1);
@@ -405,6 +430,7 @@ unsafe fn restore(loaded: Result<Option<Config>, LoadError>) {
     with(|a| {
         a.master = config.enabled;
         a.language = config.language.as_deref().and_then(Lang::from_code);
+        a.options = config.options;
     });
     let mut restored: Vec<Key> = Vec::new();
     for rule in &config.rules {
@@ -596,10 +622,120 @@ unsafe fn build_menu() -> HMENU {
     let last = first + Lang::ALL.len() as u32 - 1;
     CheckMenuRadioItem(langs, first, last, first + current, MF_BYCOMMAND);
     AppendMenuW(bar, MF_POPUP, langs as usize, w(t().menu_language).as_ptr());
+    let options = CreatePopupMenu();
+    fill_options_menu(options);
+    AppendMenuW(bar, MF_POPUP, options as usize, w(t().menu_options).as_ptr());
     let help = CreatePopupMenu();
     AppendMenuW(help, MF_STRING, ID_ABOUT as usize, w(t().menu_about).as_ptr());
     AppendMenuW(bar, MF_POPUP, help as usize, w(t().menu_help).as_ptr());
     bar
+}
+
+/// Appends the option items, with their current check states. "Start with Windows" is read
+/// from the registry each time, so a change made in Task Manager shows up.
+unsafe fn append_options(menu: HMENU) {
+    let o = with(|a| a.options).unwrap_or_default();
+    let autostart = autostart::is_enabled();
+    let s = t();
+    let item = |id: i32, text: &str, checked: bool, enabled: bool| {
+        let check = if checked { MF_CHECKED } else { MF_UNCHECKED };
+        let state = if enabled { MF_ENABLED } else { MF_GRAYED };
+        AppendMenuW(menu, MF_STRING | check | state, id as usize, w(text).as_ptr());
+    };
+    item(ID_OPT_AUTOSTART, s.opt_autostart, autostart, true);
+    // Only applies when started with Windows.
+    item(ID_OPT_START_MINIMIZED, s.opt_start_minimized, o.start_minimized, autostart);
+    item(ID_OPT_START_ENABLED, s.opt_start_enabled, o.start_enabled, true);
+    AppendMenuW(menu, MF_SEPARATOR, 0, null());
+    item(ID_OPT_CLOSE_TO_TRAY, s.opt_close_to_tray, o.close_to_tray, true);
+    item(ID_OPT_MINIMIZE_TO_TRAY, s.opt_minimize_to_tray, o.minimize_to_tray, true);
+}
+
+/// (Re)fills the menu bar's Options menu: the options, then Exit.
+unsafe fn fill_options_menu(menu: HMENU) {
+    while GetMenuItemCount(menu) > 0 {
+        DeleteMenu(menu, 0, MF_BYPOSITION);
+    }
+    append_options(menu);
+    AppendMenuW(menu, MF_SEPARATOR, 0, null());
+    AppendMenuW(menu, MF_STRING, ID_EXIT as usize, w(t().menu_exit).as_ptr());
+}
+
+/// Right-click menu of the notification area icon, built fresh each time (current language
+/// and states).
+unsafe fn show_tray_menu(hwnd: HWND, x: i32, y: i32) {
+    let s = t();
+    let master = with(|a| a.master).unwrap_or(true);
+    let menu = CreatePopupMenu();
+    AppendMenuW(menu, MF_STRING, ID_SHOW as usize, w(s.tray_show).as_ptr());
+    SetMenuDefaultItem(menu, ID_SHOW as u32, 0);
+    AppendMenuW(menu, MF_SEPARATOR, 0, null());
+    let master_text = if master { s.master_disable } else { s.master_enable };
+    AppendMenuW(menu, MF_STRING, ID_TRAY_MASTER as usize, w(master_text).as_ptr());
+    let options = CreatePopupMenu();
+    append_options(options);
+    AppendMenuW(menu, MF_POPUP, options as usize, w(s.menu_options).as_ptr());
+    AppendMenuW(menu, MF_SEPARATOR, 0, null());
+    AppendMenuW(menu, MF_STRING, ID_EXIT as usize, w(s.menu_exit).as_ptr());
+    // Documented workaround: without being the foreground window the menu doesn't close when
+    // the user clicks elsewhere, and WM_NULL makes the next click work right after.
+    SetForegroundWindow(hwnd);
+    let align = if GetSystemMetrics(SM_MENUDROPALIGNMENT) != 0 { TPM_RIGHTALIGN } else { TPM_LEFTALIGN };
+    TrackPopupMenu(menu, align | TPM_BOTTOMALIGN | TPM_RIGHTBUTTON, x, y, 0, hwnd, null());
+    PostMessageW(hwnd, WM_NULL, 0, 0);
+    DestroyMenu(menu); // also destroys the Options submenu
+}
+
+/// Toggles one of the Options menu items.
+unsafe fn toggle_option(id: i32) {
+    if id == ID_OPT_AUTOSTART {
+        let enable = !autostart::is_enabled();
+        match autostart::set(enable) {
+            Ok(()) => log(if enable { t().log_autostart_on } else { t().log_autostart_off }),
+            Err(e) => log(&(t().log_autostart_error)(&e)),
+        }
+        return;
+    }
+    with(|a| {
+        let o = &mut a.options;
+        match id {
+            ID_OPT_START_MINIMIZED => o.start_minimized = !o.start_minimized,
+            ID_OPT_START_ENABLED => o.start_enabled = !o.start_enabled,
+            ID_OPT_CLOSE_TO_TRAY => o.close_to_tray = !o.close_to_tray,
+            ID_OPT_MINIMIZE_TO_TRAY => o.minimize_to_tray = !o.minimize_to_tray,
+            _ => {}
+        }
+    });
+    persist();
+}
+
+/// Hides the window in the notification area. The first time ever, tells the user the app is
+/// still running there.
+unsafe fn hide_to_tray() {
+    cancel_capture();
+    let Some((main, hint_shown)) = with(|a| {
+        let shown = a.options.tray_hint_shown;
+        a.options.tray_hint_shown = true;
+        (a.main, shown)
+    }) else {
+        return;
+    };
+    ShowWindow(main, SW_HIDE);
+    if !hint_shown {
+        tray::notify(main, t().tray_hint_title, t().tray_hint_text);
+        persist();
+    }
+}
+
+/// Shows the window (from the notification area or minimized) and brings it to the front.
+unsafe fn show_window() {
+    let Some(main) = with(|a| a.main) else { return };
+    if IsIconic(main) != 0 {
+        ShowWindow(main, SW_RESTORE);
+    } else {
+        ShowWindow(main, SW_SHOW);
+    }
+    SetForegroundWindow(main);
 }
 
 /// Re-applies every visible text in the current language.
@@ -767,6 +903,14 @@ unsafe extern "system" fn wnd_proc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam:
                 toggle_master();
             } else if lparam == 0 && id == ID_ABOUT {
                 show_about(hwnd);
+            } else if lparam == 0 && id == ID_EXIT {
+                DestroyWindow(hwnd);
+            } else if lparam == 0 && id == ID_SHOW {
+                show_window();
+            } else if lparam == 0 && id == ID_TRAY_MASTER {
+                toggle_master();
+            } else if lparam == 0 && (ID_OPT_AUTOSTART..=ID_OPT_MINIMIZE_TO_TRAY).contains(&id) {
+                toggle_option(id);
             } else if lparam == 0 && id >= ID_LANG_BASE {
                 // Menu item (lParam is 0 for menu commands).
                 if let Some(&lang) = Lang::ALL.get((id - ID_LANG_BASE) as usize) {
@@ -782,6 +926,54 @@ unsafe extern "system" fn wnd_proc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam:
             .flatten();
             if let Some((i, key, action)) = info {
                 log(&(t().log_triggered)(i + 1, &key_label(key), t().action_names[action]));
+            }
+            0
+        }
+        WM_APP_SHOW => {
+            show_window();
+            0
+        }
+        WM_APP_TRAY => {
+            match (lparam & 0xffff) as u32 {
+                NIN_SELECT | NIN_KEYSELECT | WM_LBUTTONDBLCLK => show_window(),
+                WM_CONTEXTMENU => {
+                    let x = (wparam & 0xffff) as u16 as i16 as i32;
+                    let y = ((wparam >> 16) & 0xffff) as u16 as i16 as i32;
+                    show_tray_menu(hwnd, x, y);
+                }
+                _ => {}
+            }
+            0
+        }
+        WM_INITMENUPOPUP => {
+            // Refreshes the Options check states (e.g. changed in Task Manager).
+            let menu = wparam as HMENU;
+            if menu == GetSubMenu(GetMenu(hwnd), OPTIONS_MENU_POS) {
+                fill_options_menu(menu);
+            }
+            0
+        }
+        WM_CLOSE => {
+            // Also Alt+F4. The real exit is Options > Exit or the tray menu.
+            if with(|a| a.options.close_to_tray) == Some(true) {
+                hide_to_tray();
+            } else {
+                DestroyWindow(hwnd);
+            }
+            0
+        }
+        WM_SIZE => {
+            // Covers the minimize button, Win+Down and clicking the taskbar button.
+            if wparam == SIZE_MINIMIZED as WPARAM && with(|a| a.options.minimize_to_tray) == Some(true) {
+                hide_to_tray();
+            }
+            0
+        }
+        WM_ENDSESSION => {
+            // Logoff/shutdown or an installer closing the app (Restart Manager): exit cleanly
+            // even while hidden in the notification area.
+            if wparam != 0 {
+                DestroyWindow(hwnd);
             }
             0
         }
@@ -810,8 +1002,14 @@ unsafe extern "system" fn wnd_proc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam:
             GetSysColorBrush(COLOR_BTNFACE) as LRESULT
         }
         WM_DESTROY => {
+            tray::remove(hwnd);
             hook::uninstall();
             PostQuitMessage(0);
+            0
+        }
+        _ if msg == tray::taskbar_created() => {
+            // Explorer restarted: the icon must be added again.
+            tray::add(hwnd);
             0
         }
         _ => DefWindowProcW(hwnd, msg, wparam, lparam),
@@ -828,7 +1026,7 @@ fn no_active_rules() -> bool {
 /// App icon (resource 1, embedded by build.rs) at the given system size
 /// (SM_CXICON = taskbar/Alt+Tab, SM_CXSMICON = title bar).
 /// Without the resource, falls back to the default Windows icon.
-unsafe fn app_icon(metric: SYSTEM_METRICS_INDEX) -> HICON {
+pub(crate) unsafe fn app_icon(metric: SYSTEM_METRICS_INDEX) -> HICON {
     let size = GetSystemMetrics(metric);
     let icon = LoadImageW(GetModuleHandleW(null()), std::ptr::without_provenance(1), IMAGE_ICON, size, size, LR_DEFAULTCOLOR);
     if icon.is_null() {
@@ -859,7 +1057,8 @@ unsafe fn register_class(name: &[u16], proc_: WNDPROC, background: i32, icon: bo
     Ok(())
 }
 
-pub fn run(loaded: Result<Option<Config>, LoadError>) -> Result<(), String> {
+/// `at_logon`: started by Windows (`--autostart`), so "Start minimized" applies.
+pub fn run(loaded: Result<Option<Config>, LoadError>, at_logon: bool) -> Result<(), String> {
     unsafe {
         SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_SYSTEM_AWARE);
         enable_visual_styles();
@@ -931,14 +1130,27 @@ pub fn run(loaded: Result<Option<Config>, LoadError>) -> Result<(), String> {
                 next_uid: 0,
                 scroll: 0,
                 language: None,
+                options: Options::default(),
             })
         });
         hook::install(main)?;
         restore(loaded);
+        let start_hidden = with(|a| {
+            if a.options.start_enabled {
+                a.master = true;
+            }
+            at_logon && a.options.start_minimized
+        }) == Some(true);
         relayout();
+        tray::add(main);
         // refresh, not sync: nothing changed yet, so there is nothing to save.
         refresh();
-        ShowWindow(main, SW_SHOW);
+        if let Err(e) = autostart::refresh_path() {
+            log(&(t().log_autostart_error)(&e));
+        }
+        if !start_hidden {
+            ShowWindow(main, SW_SHOW);
+        }
 
         let mut msg: MSG = zeroed();
         while GetMessageW(&mut msg, null_mut(), 0, 0) > 0 {

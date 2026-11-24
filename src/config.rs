@@ -39,13 +39,43 @@ pub struct Config {
     pub language: Option<String>,
     /// Master switch.
     pub enabled: bool,
+    pub options: Options,
     #[serde(rename = "rule")]
     pub rules: Vec<RuleConfig>,
 }
 
 impl Default for Config {
     fn default() -> Self {
-        Config { version: VERSION, language: None, enabled: true, rules: Vec::new() }
+        Config { version: VERSION, language: None, enabled: true, options: Options::default(), rules: Vec::new() }
+    }
+}
+
+/// App behavior options (Options menu). "Start with Windows" isn't here: it lives in the
+/// registry (see `autostart`), so Task Manager can change it.
+#[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq)]
+#[serde(default)]
+pub struct Options {
+    /// Closing the window hides it in the notification area instead of exiting.
+    pub close_to_tray: bool,
+    /// Minimizing the window hides it in the notification area instead of the taskbar.
+    pub minimize_to_tray: bool,
+    /// When started with Windows (`--autostart`), start hidden in the notification area.
+    pub start_minimized: bool,
+    /// Always start with remapping on, instead of restoring the last master switch state.
+    pub start_enabled: bool,
+    /// The one-time "still running in the notification area" notice was already shown.
+    pub tray_hint_shown: bool,
+}
+
+impl Default for Options {
+    fn default() -> Self {
+        Options {
+            close_to_tray: true,
+            minimize_to_tray: false,
+            start_minimized: true,
+            start_enabled: false,
+            tray_hint_shown: false,
+        }
     }
 }
 
@@ -192,6 +222,13 @@ mod tests {
             version: VERSION,
             language: Some("pt-BR".into()),
             enabled: false,
+            options: Options {
+                close_to_tray: false,
+                minimize_to_tray: true,
+                start_minimized: false,
+                start_enabled: true,
+                tray_hint_shown: true,
+            },
             rules: vec![
                 RuleConfig {
                     action: "play_pause".into(),
@@ -220,10 +257,17 @@ mod tests {
         assert_eq!(config.version, VERSION);
         assert_eq!(config.language, None);
         assert!(config.enabled);
+        assert_eq!(config.options, Options::default());
         assert_eq!(
             config.rules,
             vec![RuleConfig { action: "mute".into(), enabled: true, key: KeyConfig { vk: 19, scan: 0, extended: false } }]
         );
+    }
+
+    #[test]
+    fn partial_options() {
+        let config = parse("[options]\nstart_enabled = true\n").unwrap();
+        assert_eq!(config.options, Options { start_enabled: true, ..Options::default() });
     }
 
     #[test]

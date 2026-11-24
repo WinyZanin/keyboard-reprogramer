@@ -41,17 +41,35 @@ Os instaladores ainda não têm assinatura de código, então o SmartScreen do W
    - **Desativar/Ativar** liga e desliga só aquela tecla.
    - **Excluir** remove a linha.
 5. **Desativar tudo**, no topo, devolve todas as teclas ao normal sem perder a configuração das linhas; **Ativar tudo** religa.
-6. O histórico mostra cada acionamento. Fechar a janela devolve todas as teclas ao normal.
+6. O histórico mostra cada acionamento. As teclas continuam remapeadas enquanto o app roda, inclusive com a janela escondida na área de notificação (veja abaixo); **Opções → Sair** devolve todas as teclas ao normal.
 
 Uma mesma tecla não pode estar em duas linhas. As teclas são identificadas pela posição física (scan code), então o Insert e o Num 0 são teclas diferentes, com o NumLock ligado ou não.
 
 Volume +/- repete enquanto a tecla está segurada. As outras ações disparam uma vez por pressionamento.
 
-Só uma instância roda por vez: abrir o app de novo traz a janela existente para a frente. **Ajuda → Sobre** mostra a versão instalada e a licença.
+Só uma instância roda por vez: abrir o app de novo traz a janela existente para a frente, mesmo quando ela está escondida na área de notificação. **Ajuda → Sobre** mostra a versão instalada e a licença.
+
+## Área de notificação e opções
+
+Enquanto o app roda, o ícone dele fica na área de notificação (perto do relógio; o Windows pode colocá-lo sob a seta **^** de ícones ocultos). A dica (tooltip) mostra o status, e o ícone fica cinza quando nenhuma tecla está sendo remapeada. Clique no ícone para abrir a janela; clique com o botão direito para **Mostrar janela**, **Desativar tudo / Ativar tudo**, **Opções** e **Sair**.
+
+O menu **Opções** (na barra de menus e no menu do ícone):
+
+| Opção | Padrão | O que faz |
+| --- | --- | --- |
+| Iniciar com o Windows | desligada | Abre o app quando você entra no Windows. |
+| Iniciar minimizado na área de notificação | ligada | Ao iniciar com o Windows, abre só o ícone, sem a janela. Abrir o app por conta própria sempre mostra a janela. |
+| Sempre iniciar com o remapeamento ativado | desligada | Inicia com o remapeamento ligado mesmo que o **Desativar tudo** estivesse ligado quando o app fechou. Desligada: restaura o último estado. |
+| Fechar para a área de notificação | ligada | O **X** da janela (e Alt+F4) esconde a janela em vez de sair. Na primeira vez, uma notificação avisa que o app continua rodando. |
+| Minimizar para a área de notificação | desligada | Minimizar esconde a janela na área de notificação em vez da barra de tarefas. |
+
+Para sair de verdade, use **Opções → Sair** ou **Sair** no menu do ícone.
+
+**Iniciar com o Windows** adiciona uma entrada `Keyboard Reprogramer` em `HKCU\Software\Microsoft\Windows\CurrentVersion\Run` (por usuário, sem direitos de administrador). Ela aparece no **Gerenciador de Tarefas → Aplicativos de inicialização** e em **Configurações → Aplicativos → Inicialização**, onde também pode ser desativada; a caixa de seleção no app acompanha essa escolha. Se o exe portátil for movido, a entrada é atualizada na próxima vez que o app rodar do novo lugar. Desinstalar remove a entrada se ela aponta para a cópia desinstalada (`keyboard-reprogramer.exe --remove-autostart` faz o mesmo à mão). Ao iniciar com o Windows, o app roda sem direitos de administrador, mesmo que você costume rodá-lo como administrador.
 
 ## Configuração
 
-As linhas (tecla, ação, ativada), o estado do **Desativar tudo** e o idioma são salvos automaticamente a cada alteração e restaurados na próxima vez que o app abre. Ficam guardados por usuário em:
+As linhas (tecla, ação, ativada), o estado do **Desativar tudo**, o idioma e as opções (exceto **Iniciar com o Windows**, que fica no registro) são salvos automaticamente a cada alteração e restaurados na próxima vez que o app abre. Ficam guardados por usuário em:
 
 ```
 %APPDATA%\Keyboard Reprogramer\config.toml

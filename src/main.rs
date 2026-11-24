@@ -2,16 +2,18 @@
 #![windows_subsystem = "windows"]
 
 mod actions;
+mod autostart;
 mod config;
 mod gui;
 mod hook;
 mod i18n;
 mod keys;
+mod tray;
 
 use windows_sys::Win32::Foundation::{GetLastError, ERROR_ALREADY_EXISTS};
 use windows_sys::Win32::System::Threading::CreateMutexW;
 use windows_sys::Win32::UI::WindowsAndMessaging::{
-    FindWindowW, IsIconic, MessageBoxW, SetForegroundWindow, ShowWindow, MB_ICONERROR, SW_RESTORE,
+    AllowSetForegroundWindow, FindWindowW, GetWindowThreadProcessId, MessageBoxW, PostMessageW, MB_ICONERROR,
 };
 
 /// Named mutex held while the app runs. The installers (Inno Setup `AppMutex`) use it to
@@ -23,7 +25,8 @@ fn wide(s: &str) -> Vec<u16> {
     s.encode_utf16().chain(Some(0)).collect()
 }
 
-/// Returns false if another instance is already running (after bringing it to the front).
+/// Returns false if another instance is already running (after asking it to show its window,
+/// which may be hidden in the notification area).
 fn claim_single_instance() -> bool {
     unsafe {
         // The handle is intentionally never closed: Windows releases it when the process exits.
@@ -33,16 +36,24 @@ fn claim_single_instance() -> bool {
         }
         let window = FindWindowW(wide(gui::MAIN_CLASS).as_ptr(), std::ptr::null());
         if !window.is_null() {
-            if IsIconic(window) != 0 {
-                ShowWindow(window, SW_RESTORE);
-            }
-            SetForegroundWindow(window);
+            // This process was just started by the user, so it may hand the foreground over.
+            let mut pid = 0;
+            GetWindowThreadProcessId(window, &mut pid);
+            AllowSetForegroundWindow(pid);
+            PostMessageW(window, gui::WM_APP_SHOW, 0, 0);
         }
         false
     }
 }
 
 fn main() {
+    let args: Vec<String> = std::env::args().skip(1).collect();
+    if args.iter().any(|a| a == autostart::ARG_REMOVE) {
+        // Run by the uninstallers; there is no UI to report a failure to.
+        let _ = autostart::remove_if_own();
+        return;
+    }
+    let at_logon = args.iter().any(|a| a == autostart::ARG_AUTOSTART);
     if !claim_single_instance() {
         return;
     }
@@ -52,7 +63,7 @@ fn main() {
         _ => None,
     };
     i18n::set(saved_lang.unwrap_or_else(i18n::detect));
-    if let Err(e) = gui::run(loaded) {
+    if let Err(e) = gui::run(loaded, at_logon) {
         // There is no console, so the error goes to a message box.
         unsafe {
             MessageBoxW(

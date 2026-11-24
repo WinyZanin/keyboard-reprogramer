@@ -41,17 +41,35 @@ The installers aren't code-signed yet, so Windows SmartScreen may warn on first 
    - **Disable/Enable** turns only that key off and on.
    - **Delete** removes the row.
 5. **Disable all**, at the top, returns every key to normal without losing the rows' configuration; **Enable all** turns them back on.
-6. The history shows every trigger. Closing the window returns all keys to normal.
+6. The history shows every trigger. The keys stay remapped while the app runs, also with the window hidden in the notification area (see below); **Options → Exit** returns all keys to normal.
 
 The same key cannot be in two rows. Keys are identified by their physical position (scan code), so Insert and Num 0 are different keys, whether NumLock is on or not.
 
 Volume +/- repeats while the key is held down. The other actions fire once per press.
 
-Only one instance runs at a time: opening the app again brings the existing window to the front. **Help → About** shows the installed version and the license.
+Only one instance runs at a time: opening the app again brings the existing window to the front, even when it is hidden in the notification area. **Help → About** shows the installed version and the license.
+
+## Notification area and options
+
+While the app runs, its icon stays in the notification area (next to the clock; Windows may put it under the **^** overflow arrow). The tooltip shows the status, and the icon turns gray when no key is being remapped. Click the icon to open the window; right-click it for **Show window**, **Disable all / Enable all**, **Options** and **Exit**.
+
+The **Options** menu (in the menu bar and in the icon's menu):
+
+| Option | Default | What it does |
+| --- | --- | --- |
+| Start with Windows | off | Starts the app when you sign in to Windows. |
+| Start minimized in the notification area | on | When started with Windows, starts with only the icon, no window. Opening the app yourself always shows the window. |
+| Always start with remapping enabled | off | Starts with remapping on even if **Disable all** was on when the app closed. Off: restores the last state. |
+| Close to the notification area | on | The window's **X** (and Alt+F4) hides the window instead of exiting. The first time, a notification says the app is still running. |
+| Minimize to the notification area | off | Minimizing hides the window in the notification area instead of the taskbar. |
+
+To really exit, use **Options → Exit** or **Exit** in the icon's menu.
+
+**Start with Windows** adds a `Keyboard Reprogramer` entry to `HKCU\Software\Microsoft\Windows\CurrentVersion\Run` (per user, no administrator rights). It shows up in **Task Manager → Startup apps** and in **Settings → Apps → Startup**, where it can also be disabled; the checkbox in the app follows that choice. If the portable exe is moved, the entry is updated the next time the app runs from the new place. Uninstalling removes the entry if it points to the uninstalled copy (`keyboard-reprogramer.exe --remove-autostart` does the same by hand). When started with Windows, the app runs without administrator rights, even if you usually run it as administrator.
 
 ## Configuration
 
-The rows (key, action, enabled), the **Disable all** state and the language are saved automatically after every change and restored the next time the app opens. They are stored per user in:
+The rows (key, action, enabled), the **Disable all** state, the language and the options (except **Start with Windows**, which lives in the registry) are saved automatically after every change and restored the next time the app opens. They are stored per user in:
 
 ```
 %APPDATA%\Keyboard Reprogramer\config.toml
