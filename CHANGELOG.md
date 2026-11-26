@@ -5,6 +5,13 @@ All notable changes to this project are documented in this file. It is generated
 [Conventional Commits](https://www.conventionalcommits.org/) merged into `main`; don't edit
 new entries by hand. The project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.0](https://github.com/WinyZanin/keyboard-reprogramer/compare/v0.3.0...v0.4.0) (2026-11-26)
+
+
+### Features
+
+* notification area icon and options menu ([#9](https://github.com/WinyZanin/keyboard-reprogramer/issues/9)) ([d64af71](https://github.com/WinyZanin/keyboard-reprogramer/commit/d64af718dbf6feb69ef36636e9e536af1d8f8cb3))
+
 ## [0.3.0](https://github.com/WinyZanin/keyboard-reprogramer/compare/v0.2.0...v0.3.0) (2026-11-19)
 
 
