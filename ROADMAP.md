@@ -23,8 +23,6 @@ Known issues, observations and planned improvements. Items move to
 ## Features
 
 - [ ] **Key combinations** (e.g. Ctrl+F1). Today only single keys can be remapped.
-- [ ] **Start with Windows** (optional), probably together with running minimized to the
-  notification area (tray icon).
 
 ## Known limitations
 

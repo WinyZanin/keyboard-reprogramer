@@ -83,6 +83,20 @@ pub struct Strings {
     pub menu_language: &'static str,
     pub menu_help: &'static str,
     pub menu_about: &'static str,
+    pub menu_options: &'static str,
+    pub menu_exit: &'static str,
+
+    // Options (menu bar and notification area menu)
+    pub opt_autostart: &'static str,
+    pub opt_start_minimized: &'static str,
+    pub opt_start_enabled: &'static str,
+    pub opt_close_to_tray: &'static str,
+    pub opt_minimize_to_tray: &'static str,
+
+    // Notification area icon
+    pub tray_show: &'static str,
+    pub tray_hint_title: &'static str,
+    pub tray_hint_text: &'static str,
 
     // About dialog
     pub about_title: &'static str,
@@ -124,6 +138,9 @@ pub struct Strings {
     pub log_config_read_error: fn(err: &str) -> String,
     pub log_config_newer: fn(version: u32) -> String,
     pub log_config_save_error: fn(err: &str) -> String,
+    pub log_autostart_on: &'static str,
+    pub log_autostart_off: &'static str,
+    pub log_autostart_error: fn(err: &str) -> String,
 
     /// Same order as `actions::ACTIONS`.
     pub action_names: [&'static str; ACTION_COUNT],
@@ -155,6 +172,18 @@ static EN: Strings = Strings {
     menu_language: "&Language",
     menu_help: "&Help",
     menu_about: "&About...",
+    menu_options: "&Options",
+    menu_exit: "E&xit",
+
+    opt_autostart: "Start with &Windows",
+    opt_start_minimized: "Start &minimized in the notification area",
+    opt_start_enabled: "Always start with remapping &enabled",
+    opt_close_to_tray: "&Close to the notification area",
+    opt_minimize_to_tray: "M&inimize to the notification area",
+
+    tray_show: "&Show window",
+    tray_hint_title: "Keyboard Reprogramer is still running",
+    tray_hint_text: "Your keys stay remapped. Use the icon in the notification area to open the window or exit.",
 
     about_title: "About Keyboard Reprogramer",
     about_text: |version, url| {
@@ -202,6 +231,9 @@ static EN: Strings = Strings {
         format!("The configuration was saved by a newer version (format {version}); changes will not be saved")
     },
     log_config_save_error: |err| format!("Could not save the configuration: {err}"),
+    log_autostart_on: "The app will start with Windows",
+    log_autostart_off: "The app will no longer start with Windows",
+    log_autostart_error: |err| format!("Could not change starting with Windows: {err}"),
 
     action_names: ["Play/Pause", "Next track", "Previous track", "Stop", "Volume +", "Volume -", "Mute"],
 
@@ -231,6 +263,18 @@ static PT_BR: Strings = Strings {
     menu_language: "&Idioma",
     menu_help: "Aj&uda",
     menu_about: "&Sobre...",
+    menu_options: "&Opções",
+    menu_exit: "Sa&ir",
+
+    opt_autostart: "Iniciar com o &Windows",
+    opt_start_minimized: "Iniciar &minimizado na área de notificação",
+    opt_start_enabled: "Sempre iniciar com o remapeamento &ativado",
+    opt_close_to_tray: "&Fechar para a área de notificação",
+    opt_minimize_to_tray: "M&inimizar para a área de notificação",
+
+    tray_show: "&Mostrar janela",
+    tray_hint_title: "O Keyboard Reprogramer continua em execução",
+    tray_hint_text: "As teclas continuam remapeadas. Use o ícone na área de notificação para abrir a janela ou sair.",
 
     about_title: "Sobre o Keyboard Reprogramer",
     about_text: |version, url| {
@@ -278,6 +322,9 @@ static PT_BR: Strings = Strings {
         format!("A configuração foi salva por uma versão mais nova (formato {version}); as alterações não serão salvas")
     },
     log_config_save_error: |err| format!("Não foi possível salvar a configuração: {err}"),
+    log_autostart_on: "O app vai iniciar com o Windows",
+    log_autostart_off: "O app não vai mais iniciar com o Windows",
+    log_autostart_error: |err| format!("Não foi possível alterar o início com o Windows: {err}"),
 
     action_names: ["Play/Pause", "Próxima faixa", "Faixa anterior", "Stop", "Volume +", "Volume -", "Mudo"],
 
